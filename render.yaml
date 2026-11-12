@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: scopepay-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: PAYPAL_ENV
+        value: sandbox
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: ADMIN_USERNAME
+        value: demo
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
