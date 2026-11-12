@@ -16,7 +16,7 @@ npm install
 npm start
 ```
 
-Open **http://localhost:3000**. Without credentials, the app seeds three fictional projects and lets you explore a **clearly labeled sample analysis**. Sample data is not a live Gemini result or a real PayPal transaction.
+Open **http://localhost:3000**. Without workspace credentials, the original homepage shows only the three fictional seed projects and navigation. Private records and state-changing actions remain locked. In the existing **Integrations** page, enter `ADMIN_USERNAME` and `ADMIN_PASSWORD` to unlock the full original workspace, including sample analysis, live Gemini, and Sandbox payments. There is no separate login page or browser authentication prompt.
 
 To use real AI + sandbox checkout, copy `.env.example` to `.env`:
 
@@ -51,13 +51,13 @@ DATABASE_URL=
 
 ## 2. Complete end-to-end test
 
-1. Open **AI Scope Analyzer**, select one of the three demo projects or create your own in **My Projects**.
+1. Open **Integrations** and unlock the workspace, then open **AI Scope Analyzer**, select one of the three demo projects or create your own in **My Projects**.
 2. Type a new client request and choose **Analyze with Gemini**. A live analysis requires your key. The sample button is clearly marked as a non-live walkthrough.
 3. Examine agreement evidence, itemized hours and Gemini's suggested alternatives.
 4. Open **Negotiation Studio**. Review/change the options and amounts, then **Publish client options**.
 5. Open the generated `/negotiate/<token>` link in another tab (this is the client's view). Accept an option or send a counteroffer.
 6. If countered, return to the freelancer workspace and explicitly accept or decline it.
-7. For an accepted **paid** option, open the `/pay/<id>` checkout page, sign in as a **Sandbox Personal buyer**, and approve payment in PayPal.
+7. For an accepted **paid** option, open the token-bearing checkout page, sign in as a **Sandbox Personal buyer**, and approve payment in PayPal.
 8. Verify the dashboard/change order becomes **Paid** with a PayPal capture ID. A $0 scope exchange requires agreement but does not trigger PayPal payment.
 
 For your hackathon video, use a small Sandbox charge such as $10. The server checks the expected exact USD amount and PayPal capture status. A visible PayPal button alone is not proof of payment.
@@ -71,7 +71,7 @@ The cloud version stores data in **five PostgreSQL tables** (project, analysis, 
 3. Copy the entire PostgreSQL URI shown by Supabase. Replace its `[YOUR-PASSWORD]` placeholder with your DB password. **Percent-encode special characters**, e.g. `%40` for `@` or `%23` for `#`. Add `?sslmode=require` if the URI does not already have SSL enabled.
 4. Put the string in `.env` as `DATABASE_URL=postgresql://...` to test from your own computer, or in Render's secret environment settings (see next section). **Never add it to the frontend.**
 5. Run `npm install` and `npm start`. At the first successful PostgreSQL startup, the backend automatically creates the tables using `server/sql/001_init.sql`, enables Row Level Security with no public policies, and seeds the three example projects. Later starts read the saved PostgreSQL data.
-6. Visit `/api/health`. You should see `"storage":"postgresql"`. Create a project, restart the server, and confirm it still exists.
+6. Visit `/api/health`. You should see `"ok":true` (confirm PostgreSQL in the unlocked Integrations view). Create a project, restart the server, and confirm it still exists.
 
 **Important:** You do **not** need to paste SQL manually into the Supabase dashboard. The backend creates the schema using your privileged server-side database connection. Keep your Supabase Postgres connection URI secret; never use the browser with these database credentials.
 
@@ -99,15 +99,17 @@ The cloud version stores data in **five PostgreSQL tables** (project, analysis, 
 
 Render sets the `PORT` environment variable itself; **do not hardcode a public port**. The app listens on `0.0.0.0:$PORT` on Render. The health check path is `/api/health`.
 
-6. Deploy. Open `https://your-name.onrender.com/api/health` and verify `"ok":true` and `"storage":"postgresql"`.
-7. Open the root page and log in with your `ADMIN_USERNAME`/`ADMIN_PASSWORD` at the browser's HTTP Basic authentication prompt. The client negotiation and payment invitation links are still accessible without this password.
+6. Deploy. Open `https://your-name.onrender.com/api/health` and verify `"ok":true` and `"ok":true` (confirm PostgreSQL in the unlocked Integrations view).
+7. Open the original homepage without a login prompt. To access private records or live actions, unlock the workspace inside the existing **Integrations** page with `ADMIN_USERNAME`/`ADMIN_PASSWORD`. Client invitation and checkout links use their own scoped capabilities.
 8. Test **Gemini analysis → publish negotiation → client accepts → sandbox PayPal checkout → Paid** on Render. Restart/redeploy and confirm data remains present in Supabase.
 
-**Security and limitations:** HTTP Basic authentication is basic *demo protection*, not customer accounts. Client invite links are bearer links: anybody with one can see the offered agreement and respond. Avoid real client information and do not publish admin credentials or secrets. If sharing the demo login privately with judges, restrict Gemini usage and rotate the demo password afterwards. This application is not suitable for production, public multi-user use without proper authentication, authorization, abuse prevention, webhook reconciliation and data-retention controls. **Run only one Node process / Render instance;** the adapter uses an in-memory coordinator backed by PostgreSQL transactions, not distributed concurrency management.
+**Security and limitations:** The public homepage uses only fictional seed records. Private database records, Gemini calls, project mutations, negotiation publication, and payment operations require workspace authorization; client-specific links have narrowly scoped capabilities. Workspace access uses HttpOnly, SameSite=Lax sessions, Secure cookies in production, CSRF checks, expiry, logout (Lock workspace), and login rate limiting. No browser Basic Auth challenge is sent. `SESSION_SECRET` is optional (32+ random characters if supplied); otherwise a fresh random process-local secret is generated. Sessions reset after restart. Keep administrator credentials and client links confidential. Use exactly one Node process / Render instance; distributed coordination, MFA, and webhook reconciliation are not implemented.
+
+**Existing checkout links:** Negotiation token values are retained. Additive token/expiry metadata protects checkout access without deleting records. Old bare `/pay/<id>` links must be reshared using the token-bearing link from the original Change Orders page, or reached through a valid negotiation link. Existing additive fields in Supabase are retained; this interface restoration does not remove database records or tables.
 
 ## 5. Optional: import YOUR earlier local JSON records
 
-The ZIP deliberately **does not contain your real `server/data/store.json`** because it might include client details, analyses and sandbox transaction history. You can preserve it locally:
+The repository deliberately **does not contain your real `server/data/store.json`** because it might include client details, analyses and sandbox transaction history. You can preserve it locally:
 
 1. Stop both server versions and back up the original `store.json`.
 2. Copy your old `store.json` into this project's `server/data/` directory (it is ignored by Git).
@@ -149,7 +151,7 @@ The suite covers Gemini normalization, PayPal request/capture validation (with m
 | Render no open ports | Set `HOST=0.0.0.0`; don't override the Render-provided `PORT`. |
 | `getaddrinfo ENETUNREACH` or PostgreSQL connection failure | On Render use Supabase **Session pooler** (port 5432) rather than a direct IPv6 connection. Check the password and SSL URI. |
 | `Cannot find package 'pg'` | Run `npm install` before starting. |
-| Render returns HTTP 401 on `/` | Enter `ADMIN_USERNAME` and `ADMIN_PASSWORD` (the workspace is intentionally protected). |
+| Live action returns HTTP 401 | Unlock private workspace access in Integrations. The homepage itself needs no login. |
 | Old transactions absent on new database | See optional JSON migration above. Old JSON is never uploaded automatically. |
 | Data disappears on restart | Check `/api/health` shows `postgresql`; without `DATABASE_URL` the app uses local JSON, which is ephemeral on Render. |
 
@@ -159,7 +161,7 @@ The suite covers Gemini normalization, PayPal request/capture validation (with m
 scopepay-ai/
 ├─ client/                 # Freelancer dashboard, client negotiation, PayPal checkout
 ├─ server/
-│  ├─ index.mjs             # API routes + optional admin access control
+│  ├─ index.mjs             # API routes + workspace authorization
 │  ├─ lib/analysis.mjs      # Gemini AI integration and normalization
 │  ├─ lib/negotiation.mjs   # Negotiation options and validation
 │  ├─ lib/paypal.mjs        # Sandbox Orders v2 + capture verification

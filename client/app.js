@@ -1,3 +1,4 @@
+let workspaceCsrf='',workspaceUnlocked=false,workspaceSession;
 const ICONS = {
   grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   spark:'<path d="m12 3-1.8 6.2L4 11l6.2 1.8L12 19l1.8-6.2L20 11l-6.2-1.8L12 3Z"/><path d="m19 17-.7 2.3L16 20l2.3.7L19 23l.7-2.3L22 20l-2.3-.7L19 17Z"/>',
@@ -45,8 +46,10 @@ let config={aiReady:false,paypalReady:false,paypalClientId:null,aiModel:'gemini-
 let page='overview', selectedProjectId='proj_atelier', activeAnalysisId=null,activeOrderId=null,modal=null,working=false,draftRequest='',toastTimeout=null;
 
 async function request(route,method='GET',body) {
-  const res=await fetch(route,{method,headers:{'Content-Type':'application/json'},...(body!==undefined?{body:JSON.stringify(body)}:{})});
+  if(!workspaceCsrf){workspaceSession ||= fetch('/api/auth/session').then(r=>r.json());const session=await workspaceSession;workspaceCsrf=session.csrfToken||'';workspaceUnlocked=Boolean(session.authenticated);}
+  const res=await fetch(route,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':workspaceCsrf},...(body!==undefined?{body:JSON.stringify(body)}:{})});
   const payload=await res.json().catch(()=>({}));
+  if(res.status===401&&workspaceUnlocked){workspaceCsrf='';workspaceSession=null;workspaceUnlocked=false;await load();}
   if(!res.ok)throw new Error(payload.error||`Request failed (${res.status})`);
   return payload;
 }
@@ -164,7 +167,8 @@ function orders(){const o=selectedOrder();return `${heading('FROM SCOPE TO PAYME
 function projects(){return `${heading('YOUR CLIENT WORK','My projects','Every project starts with a clear agreement.',`<button class="btn btn-primary" data-action="new-project">${icon('plus')} New project</button>`)}
  <div class="projects-grid">${data.projects.map((p,i)=>`<article class="card project-tile"><div class="tile-top"><div class="project-square ${projectColor(i)}">${esc(p.name.charAt(0))}</div><span class="badge green">Active</span></div><h3>${esc(p.name)}</h3><p>${esc(p.scope)}</p><div class="tile-meta"><div>PROJECT BUDGET<strong>${usd(p.budget)}</strong></div><div>HOURLY RATE<strong>${usd(p.hourlyRate)}/hr</strong></div></div><button class="btn btn-secondary" data-action="open-project" data-id="${esc(p.id)}">Analyze a request ${icon('arrow',15)}</button></article>`).join('')}</div>`;}
 function activityPage(){return `${heading('EVERY STEP RECORDED','Activity log','A simple timeline of your projects, analysis, and sandbox payment milestones.')}<div class="white-panel"><div class="panel-head"><h3>Workspace events</h3><span class="badge gray">Latest ${data.activities.length}</span></div>${recentActivity(100)}</div>`;}
-function integrations(){return `${heading('YOUR TOOLKIT','Integrations','Add your own API keys to unlock real AI decisions and PayPal test payments.')}<div class="integration-grid">
+function workspaceAccess(){return `<div class="white-panel" style="margin-bottom:20px"><div class="panel-body"><h3>Private workspace access</h3>${workspaceUnlocked?'<p>Private records and live integrations are unlocked for this session.</p><button class="btn btn-secondary" data-action="lock-workspace">Lock workspace</button>':'<p>The public homepage shows fictional examples only. Unlock to access private records and live integrations.</p><form id="workspace-access"><div class="form-two"><div class="field"><label for="workspace-user">Workspace username</label><input class="input" id="workspace-user" name="username" autocomplete="username" required></div><div class="field"><label for="workspace-password">Workspace password</label><input class="input" id="workspace-password" name="password" type="password" autocomplete="current-password" required></div></div><button class="btn btn-primary">Unlock workspace</button></form>'}</div></div>`;}
+function integrations(){return `${heading('YOUR TOOLKIT','Integrations','Add your own API keys to unlock real AI decisions and PayPal test payments.')}${workspaceAccess()}<div class="integration-grid">
  <div class="card integration-card"><div class="int-header"><div class="integration-logo gemini">✦</div><span class="badge ${config.aiReady?'green':'orange'}">${config.aiReady?'Connected':'Needs API key'}</span></div><h3>Google Gemini AI</h3><p>Analyzes agreements, detects scope changes, estimates extra hours, and generates a client-ready reply.</p><div class="divider"></div><h4>Activate Gemini</h4><ol class="setup-steps"><li>Get an API key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</li><li>Add <span class="code-inline">GEMINI_API_KEY=your_key</span> to <span class="code-inline">.env</span>.</li><li>Restart <span class="code-inline">npm start</span>.</li></ol><div class="small-muted">Model: ${esc(config.aiModel)} · Keys stay on the backend.</div></div>
  <div class="card integration-card"><div class="int-header"><div class="integration-logo paypal">P<span style="color:#4397e4">P</span></div><span class="badge ${config.paypalReady?'green':'orange'}">${config.paypalReady?'Sandbox connected':'Needs credentials'}</span></div><h3>PayPal Sandbox</h3><p>Creates real PayPal sandbox orders, displays PayPal Checkout, and verifies captured payment totals.</p><div class="divider"></div><h4>Activate PayPal</h4><ol class="setup-steps"><li>Create a Sandbox REST app on <a href="https://developer.paypal.com/dashboard/applications/sandbox" target="_blank" rel="noopener">PayPal Developer</a>.</li><li>Put <span class="code-inline">PAYPAL_CLIENT_ID</span> and <span class="code-inline">PAYPAL_CLIENT_SECRET</span> in <span class="code-inline">.env</span>.</li><li>Restart the server and pay using a Sandbox Personal account.</li></ol><div class="small-muted">Environment: Sandbox only · Currency: USD.</div></div></div><div class="small-muted" style="margin-top:16px">Project storage: ${esc(config.storageMode||'Local JSON')} · secrets remain on the backend.</div>
  <div class="notice">${icon('info',19)}<span><strong>Hackathon-ready integration:</strong> This app uses actual third-party APIs when credentials are supplied. The example analysis is intentionally labeled as sample data and never presented as a model response. No live money is accepted.</span></div>`;}
@@ -190,7 +194,7 @@ async function reload(){await load();render();}
 async function busy(action){if(working)return;working=true;render();try{await action();}catch(e){notify(e.message,true);}finally{working=false;render();}}
 function copyText(t){if(navigator.clipboard?.writeText)return navigator.clipboard.writeText(t).then(()=>notify('Copied to clipboard')).catch(()=>fallbackCopy(t));fallbackCopy(t);}
 function fallbackCopy(t){const area=document.createElement('textarea');area.value=t;document.body.append(area);area.select();document.execCommand('copy');area.remove();notify('Copied to clipboard');}
-function payUrl(id){return `${location.origin}/pay/${encodeURIComponent(id)}`;}
+function payUrl(id){const order=data.changeOrders.find(o=>o.id===id);return `${location.origin}/pay/${encodeURIComponent(id)}?token=${encodeURIComponent(order?.accessToken||'')}`;}
 function sdkReady(){if(window.paypal?.Buttons)return Promise.resolve();if(window.__paypalLoading)return window.__paypalLoading;
  window.__paypalLoading=new Promise((resolve,reject)=>{
  const script=document.createElement('script');script.src=`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.paypalClientId)}&currency=USD&components=buttons&intent=capture`;script.onload=()=>window.paypal?.Buttons?resolve():reject(new Error('PayPal buttons unavailable'));script.onerror=()=>reject(new Error('Could not load PayPal Checkout SDK'));document.head.append(script);
@@ -212,6 +216,7 @@ document.addEventListener('input',e=>{if(e.target?.id==='client-request')draftRe
 document.addEventListener('change',e=>{if(e.target?.id==='negotiation-analysis'){activeAnalysisId=e.target.value;render();}if(e.target?.id==='project-select'){selectedProjectId=e.target.value;activeAnalysisId=null;draftRequest='';render();}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal){modal=null;render();}if((e.key==='Enter'||e.key===' ')&&e.target.classList.contains('project-card')){e.preventDefault();e.target.click();}});
 document.addEventListener('submit',async e=>{
+ if(e.target.id==='workspace-access'){e.preventDefault();const form=e.target;await busy(async()=>{const result=await request('/api/auth/login','POST',{username:form.elements.namedItem('username').value,password:form.elements.namedItem('password').value});workspaceCsrf=result.csrfToken;workspaceUnlocked=true;await reload();notify('Private workspace unlocked.');});return;}
  if(e.target.id==='project-form'){
   e.preventDefault();const fd=Object.fromEntries(new FormData(e.target).entries());await busy(async()=>{const p=await request('/api/projects','POST',fd);selectedProjectId=p.id;activeAnalysisId=null;draftRequest='';modal=null;await load();switchPage('analyzer');notify('Project created. Paste a client request to analyze.');});
  }
@@ -227,6 +232,7 @@ document.addEventListener('submit',async e=>{
 });
 document.addEventListener('click',async e=>{
  const target=e.target.closest('[data-action]');if(!target)return;const act=target.dataset.action;
+ if(act==='lock-workspace'){await busy(async()=>{await request('/api/auth/logout','POST',{});workspaceCsrf='';workspaceSession=null;workspaceUnlocked=false;await reload();notify('Workspace locked.');});return;}
  if(act==='overlay-close'&&e.target===target){modal=null;render();return;}
  if(act==='nav'){switchPage(target.dataset.page);return;}
  if(act==='new-project'){modal={type:'project'};render();return;}

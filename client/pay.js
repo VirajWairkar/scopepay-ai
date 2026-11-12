@@ -2,7 +2,7 @@ const root=document.getElementById('checkout');
 const esc=s=>String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;');
 const usd=v=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(v);
 const id=location.pathname.split('/')[2];
-async function api(url,method='GET',body){const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});const json=await res.json().catch(()=>({}));if(!res.ok)throw new Error(json.error||'Checkout failed');return json;}
+async function api(url,method='GET',body){const res=await fetch(url,{method,headers:{'Content-Type':'application/json','X-Client-Token':new URLSearchParams(location.search).get('token')||''},...(body?{body:JSON.stringify(body)}:{})});const json=await res.json().catch(()=>({}));if(!res.ok)throw new Error(json.error||'Checkout failed');return json;}
 function success(o){root.innerHTML=`<div class="checkout-status"><svg width="45" height="45" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m7 12 3 3 7-7"/></svg><h2>Payment completed</h2><p>Sandbox capture ID: ${esc(o.captureId||'Processing…')}</p><p>Your freelancer can see this payment in ScopePay.</p></div>`;}
 function failure(text){root.innerHTML=`<h2>Checkout unavailable</h2><div class="checkout-error">${esc(text)}</div><a class="btn btn-secondary" style="margin-top:20px" href="/">Return to dashboard</a>`;}
 (async()=>{

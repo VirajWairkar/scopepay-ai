@@ -1,6 +1,6 @@
-> **Version 2.1:** For Supabase + Render setup, read `docs/SUPABASE_RENDER_SETUP.md` and `README.md`. This guide was written for the earlier 2.0 negotiation upgrade.
+> **Deployment setup:** For Supabase + Render setup, read `docs/SUPABASE_RENDER_SETUP.md` and `README.md`. This guide was written for the earlier 2.0 negotiation upgrade.
 
-# Upgrading your existing ScopePay AI project to 2.0
+# Upgrading your existing ScopePay AI project
 
 You can preserve your verified PayPal Sandbox transactions and existing Gemini history. The provided ZIP **intentionally excludes your `.env` and `server/data/store.json`**.
 
@@ -13,7 +13,7 @@ You can preserve your verified PayPal Sandbox transactions and existing Gemini h
 5. Optional: If you want your old projects, analysis and verified sandbox payments preserved, copy **your own local** `server/data/store.json` into `scopepay-ai-v2/server/data/store.json`. The v2 code reads v1 data, including existing Paid records; it adds the `negotiations` field as needed. This file is private; do not upload it to GitHub.
 6. Open the new project directory in VS Code, run `npm test`, then `npm start`.
 7. Open `http://127.0.0.1:3000` and run through the new **Negotiation Studio** flow.
-8. If you copied historical analyses, analyses created by older Gemini versions won't have evidence excerpts or AI option descriptions. Run a **new** Gemini analysis for the best 2.0 experience.
+8. If you copied historical analyses, analyses created by older Gemini versions won't have evidence excerpts or AI option descriptions. Run a **new** Gemini analysis for the best experience.
 
 ## How to test the new feature
 

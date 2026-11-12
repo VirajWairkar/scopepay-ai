@@ -1,3 +1,4 @@
+import {adminClient} from './helpers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,13 +14,10 @@ test('end-to-end sample analyzer → approved change order → public checkout (
  const file=path.join(tmp,'db.json');
  const PORT=33000 + Math.floor(Math.random()*1000);
  const server=spawn(process.execPath,['server/index.mjs'],{
-  cwd,env:{...process.env,PORT:String(PORT),HOST:'127.0.0.1',DATA_FILE:file,GEMINI_API_KEY:'',PAYPAL_CLIENT_ID:'',PAYPAL_CLIENT_SECRET:''},stdio:'pipe'
+  cwd,env:{...process.env,DATABASE_URL:'',ADMIN_USERNAME:'test-admin',ADMIN_PASSWORD:'test-password',SESSION_SECRET:'test-session-secret-at-least-32-characters',NODE_ENV:'test',RENDER:'',PORT:String(PORT),HOST:'127.0.0.1',DATA_FILE:file,GEMINI_API_KEY:'',PAYPAL_CLIENT_ID:'',PAYPAL_CLIENT_SECRET:''},stdio:'pipe'
  });
  const base=`http://127.0.0.1:${PORT}`;
- const call=async(url,method='GET',body)=>{
-  const r=await fetch(base+url,{method,headers:{'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
-  return {status:r.status,body:await r.json()};
- };
+ const call=adminClient(base);
  try{
   let started=false;
   for(let i=0;i<70;i++){try{const r=await call('/api/health');if(r.body.ok){started=true;break;}}catch{}await sleep(70);}

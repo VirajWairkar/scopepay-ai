@@ -57,9 +57,8 @@ export class PayPalSandbox {
 }
 
 export function verifiedCapture(paypalCapture, changeOrder) {
-  const captures = (paypalCapture.purchase_units || []).flatMap(p=>p.payments?.captures||[]);
-  return paypalCapture.status === 'COMPLETED' && captures.some(c=>
-    c.status === 'COMPLETED' && c.amount?.currency_code === 'USD' &&
-    Math.round(Number(c.amount?.value)*100) === Math.round(changeOrder.amount*100)
-  ) ? captures.find(c=>c.status==='COMPLETED' && c.amount?.currency_code==='USD' && Math.round(Number(c.amount?.value)*100)===Math.round(changeOrder.amount*100)) : null;
+  if(paypalCapture.status!=='COMPLETED'||(changeOrder.currency&&changeOrder.currency!=='USD'))return null;
+  const captures=(paypalCapture.purchase_units||[]).flatMap(p=>p.payments?.captures||[]);
+  return captures.find(c=>typeof c.id==='string'&&c.id.length>0&&c.status==='COMPLETED'&&c.amount?.currency_code==='USD'&&
+    Number.isFinite(Number(c.amount.value))&&Math.abs(Number(c.amount.value)*100-Math.round(Number(c.amount.value)*100))<1e-6&&Math.round(Number(c.amount.value)*100)===Math.round(changeOrder.amount*100))||null;
 }

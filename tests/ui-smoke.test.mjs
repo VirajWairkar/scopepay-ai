@@ -16,10 +16,11 @@ test('dashboard, analyzer, change orders, projects, activity and integrations re
  ],analyses:[analysis],changeOrders:[],negotiations:[],activities:[]};
  global.document={getElementById:(id)=>id==='app'?root:null,addEventListener:(name,cb)=>listeners.set(name,cb),createElement:()=>({}),body:{append(){}}};
  global.window={scrollTo(){}};
- global.fetch=async(url)=>({ok:true,json:async()=>url==='/api/config'?{aiReady:false,paypalReady:false,aiModel:'gemini-2.5-flash'}:fixture});
+ let sessionCalls=0;const requests=[];
+ global.fetch=async(url,options)=>{requests.push({url,options});if(url==='/api/auth/session')sessionCalls++;return {ok:true,json:async()=>url==='/api/auth/session'?{csrfToken:'test',authenticated:false}:url==='/api/auth/login'?{csrfToken:'unlocked-test'}:url==='/api/config'?{aiReady:false,paypalReady:false,aiModel:'gemini-2.5-flash'}:fixture};};
  await import('../client/app.js');
  await new Promise(r=>setTimeout(r,30));
- assert.match(root.innerHTML,/Good to see you/);
+ assert.match(root.innerHTML,/Good to see you/);assert.equal(sessionCalls,1);assert.doesNotMatch(root.innerHTML,/Public Demo|Admin Workspace/);
  const nav=page=>listeners.get('click')({target:{closest:()=>({dataset:{action:'nav',page}})}});
  for(const [page,title] of [['analyzer','Scope analyzer'],['negotiate','Negotiation Studio'],['orders','Change orders'],['projects','My projects'],['activity','Activity log'],['integrations','Integrations'],['overview','Good to see you']]){
   nav(page);assert.match(root.innerHTML,new RegExp(title,'i'),`page ${page} failed to render`);
@@ -37,4 +38,12 @@ test('dashboard, analyzer, change orders, projects, activity and integrations re
   listeners.get('click')({target:{closest:()=>({dataset:{action:'fill-sample'}})}});
   assert.ok(root.innerHTML.includes(example),`${id} should fill its tailored example request`);
  }
+ nav('integrations');assert.match(root.innerHTML,/Unlock workspace/);
+ await listeners.get('submit')({preventDefault(){},target:{id:'workspace-access',elements:{namedItem:name=>({value:name==='username'?'test-admin':'test-password'})}}});
+ assert.match(root.innerHTML,/Lock workspace/);
+ const loginRequest=requests.find(x=>x.url==='/api/auth/login');assert.equal(loginRequest.options.headers['X-CSRF-Token'],'test');
+ await listeners.get('click')({target:{closest:()=>({dataset:{action:'lock-workspace'}})}});
+ assert.match(root.innerHTML,/Unlock workspace/);
+ assert.equal(requests.find(x=>x.url==='/api/auth/logout').options.headers['X-CSRF-Token'],'unlocked-test');
+
 });

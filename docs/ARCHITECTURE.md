@@ -1,4 +1,4 @@
-# ScopePay AI 2.1 — Technical architecture and threat model
+# ScopePay AI — Technical architecture and threat model
 
 ## Components
 
@@ -38,12 +38,12 @@ The same application can run without `DATABASE_URL`, in which case the original 
 ## Security boundaries
 
 - `DATABASE_URL`, `PAYPAL_CLIENT_SECRET`, and `GEMINI_API_KEY` are server-side secrets in Render env vars / local `.env`. The PayPal Client ID is intentionally public, as expected by its browser SDK.
-- `ADMIN_USERNAME` and `ADMIN_PASSWORD` optionally protect the freelancer dashboard and administrative API with HTTP Basic authentication. Render deployments refuse to start without `ADMIN_PASSWORD`.
-- Public `/negotiate/<token>` invitation links use unguessable bearer tokens, but possession of the link grants the ability to respond. Public payment links use random change-order IDs.
-- No production customer logins, per-user roles, webhook verification, robust rate limiting, CSRF controls, reconciliation, backups or automated database-migration versioning are implemented.
+- The homepage is public and exposes only fictional seed records. Unlock private records and live actions in the existing Integrations page using `ADMIN_USERNAME` and `ADMIN_PASSWORD`. Sessions, CSRF checks, and rate limiting protect these operations; no HTTP Basic challenge or separate login page exists.
+- Public `/negotiate/<token>` invitation links use unguessable bearer tokens, but possession of the link grants the ability to respond. Public payment links require a scoped random checkout token as well as their change-order ID. Tokens expire and can be revoked.
+- No production customer logins, per-user roles, webhook verification, distributed rate limiting, reconciliation, backups or automated database-migration versioning are implemented.
 - Do not host real client agreements or expose public API credentials through Devpost or GitHub. Protect the hosted demo password and rotate after judging.
 - Sandbox payments move no real money. This application is not an escrow or real-money payment system.
 
 ## Deployment requirements
 
-Use the **Supabase Session pooler PostgreSQL URI (port 5432)** for an IPv4-compatible Render backend; require TLS via `sslmode=require`. Set `HOST=0.0.0.0`, use Render's `PORT`, set all required server-only environment secrets, then verify `/api/health` reports `storage: postgresql`. Full instructions are in `README.md` and `docs/SUPABASE_RENDER_SETUP.md`.
+Use the **Supabase Session pooler PostgreSQL URI (port 5432)** for an IPv4-compatible Render backend; require TLS via `sslmode=require`. Set `HOST=0.0.0.0`, use Render's `PORT`, set all required server-only environment secrets, then verify `/api/health` returns `{ "ok": true }`. Full instructions are in `README.md` and `docs/SUPABASE_RENDER_SETUP.md`.

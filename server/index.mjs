@@ -1,8 +1,9 @@
 import http from 'node:http';
+import {createAuth} from './lib/auth.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {Store, publicState, makeId, now} from './lib/store.mjs';
+import {Store, publicState, initialStore, makeId, now} from './lib/store.mjs';
 import {makePostgresStore} from './lib/postgres-store.mjs';
 import {sampleAnalysis, analyzeWithGemini} from './lib/analysis.mjs';
 import {paypalReady, PayPalSandbox, verifiedCapture} from './lib/paypal.mjs';
@@ -13,6 +14,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const clientRoot = path.join(root, 'client');
 
 function loadEnv() {
+  if(process.env.SCOPEPAY_SKIP_ENV==='1')return;
   const file = path.join(root, '.env');
   if (!fs.existsSync(file)) return;
   for (const line of fs.readFileSync(file,'utf8').split(/\r?\n/)) {
@@ -29,6 +31,10 @@ export async function initializeStorage() {
   if (store) return store;
   store=process.env.DATABASE_URL ? await makePostgresStore() :
     new Store(process.env.DATA_FILE ? path.resolve(root,process.env.DATA_FILE) : path.join(root,'server/data/store.json'));
+  // Add capability tokens only to existing rows; never remove or replace records.
+  if(store.data.changeOrders.some(o=>!o.accessToken)|| (store.data.negotiations||[]).some(n=>!n.expiresAt))
+    await store.update(db=>{for(const o of db.changeOrders)if(!o.accessToken){o.accessToken=crypto.randomBytes(24).toString('base64url');o.expiresAt=new Date(Date.now()+90*86400000).toISOString();}
+      for(const n of db.negotiations||[])if(!n.expiresAt)n.expiresAt=new Date(Date.now()+90*86400000).toISOString();});
   return store;
 }
 const paypal=new PayPalSandbox();
@@ -77,7 +83,7 @@ function negotiationBy(id) {
 }
 function negotiationByToken(token) {
   const deal=(store.data.negotiations||[]).find(n=>n.token===token);
-  if (!deal) fail('Client invitation not found.',404);
+  if (!deal || deal.revokedAt || !(Date.parse(deal.expiresAt)>Date.now())) fail('Client invitation expired or unavailable.',404);
   return deal;
 }
 function changeOrderBy(id) {
@@ -98,14 +104,14 @@ function publicNegotiation(deal) {
     options:deal.options,status:deal.status,selectedOptionId:deal.selectedOptionId||null,
     decidedAmount:deal.decidedAmount??null,decisionSource:deal.decisionSource||null,
     counter:deal.status==='countered'?deal.counter:null,
-    paymentOrder:order?getPublicOrder(order):null,checkoutUrl:order?`/pay/${order.id}`:null,createdAt:deal.createdAt};
+    paymentOrder:order?getPublicOrder(order):null,checkoutUrl:order?`/pay/${order.id}?token=${order.accessToken}`:null,createdAt:deal.createdAt};
 }
 function orderFromNegotiation(db,deal,choice,origin) {
   if (choice.amount===0)return null;
   const analysis=analysisBy(deal.analysisId);
   const order={id:makeId('co'),projectId:deal.projectId,analysisId:deal.analysisId,
     negotiationId:deal.id,title:`Agreed option · ${choice.name}`.slice(0,120),
-    description:choice.description,amount:choice.amount,currency:'USD',status:'approved',
+    description:choice.description,amount:choice.amount,currency:'USD',status:'approved',accessToken:crypto.randomBytes(24).toString('base64url'),expiresAt:new Date(Date.now()+90*86400000).toISOString(),
     source:analysis.source,approvalSource:origin,createdAt:now(),paypalOrderId:null,captureId:null,paidAt:null};
   db.changeOrders.unshift(order);
   deal.changeOrderId=order.id;
@@ -121,9 +127,9 @@ function getPublicOrder(order) {
 async function api(req,res,url) {
   const route=url.pathname;
   const method=req.method;
-  if (route==='/api/health' && method==='GET') return send(res,200,{ok:true,version:'2.1.0',mode:'sandbox',storage:process.env.DATABASE_URL?'postgresql':'local-json'});
+  if (route==='/api/health' && method==='GET') return send(res,200,{ok:true});
   if (route==='/api/config' && method==='GET') return send(res,200,configPublic());
-  if (route==='/api/state' && method==='GET') return send(res,200,publicState(store));
+  if (route==='/api/state' && method==='GET') return send(res,200,req.workspaceAuthorized?publicState(store):structuredClone(initialStore()));
   if (route==='/api/projects' && method==='POST') {
     const body=await readBody(req);
     const project={id:makeId('proj'),name:requiredText(body.name,'Project name',100),client:requiredText(body.client,'Client',100),
@@ -161,11 +167,18 @@ async function api(req,res,url) {
     const existing=(store.data.negotiations||[]).find(n=>n.analysisId===analysis.id);
     if (existing) return send(res,200,existing);
     const deal={id:makeId('neg'),token:crypto.randomBytes(24).toString('base64url'),analysisId:analysis.id,projectId:analysis.projectId,
-      options,status:'awaiting_client',selectedOptionId:null,decidedAmount:null,changeOrderId:null,counter:null,
+      expiresAt:new Date(Date.now()+90*86400000).toISOString(),options,status:'awaiting_client',selectedOptionId:null,decidedAmount:null,changeOrderId:null,counter:null,
       freelancerApprovedAt:now(),createdAt:now(),acceptedAt:null};
     await store.update(db=>{db.negotiations??=[];db.negotiations.unshift(deal);
       store.activity('order',`Negotiation published for ${project.client} · ${options.length} options`,project.id);});
     return send(res,201,deal);
+  }
+  const revoke=route.match(/^\/api\/(negotiations|change-orders)\/([^/]+)\/revoke$/);
+  if(revoke&&method==='POST'){
+    const item=revoke[1]==='negotiations'?negotiationBy(revoke[2]):changeOrderBy(revoke[2]);
+    await store.update(db=>{const rows=revoke[1]==='negotiations'?db.negotiations:db.changeOrders;rows.find(x=>x.id===item.id).revokedAt=now();
+      if(revoke[1]==='negotiations')for(const order of db.changeOrders)if(order.negotiationId===item.id)order.revokedAt=now();});
+    return send(res,200,{ok:true});
   }
   const publicDealMatch=route.match(/^\/api\/public\/negotiations\/([^/]+)$/);
   if (publicDealMatch && method==='GET') return send(res,200,publicNegotiation(negotiationByToken(publicDealMatch[1])));
@@ -178,7 +191,7 @@ async function api(req,res,url) {
     if (!choice) fail('Choose one of the published options.',400);
     if (clientDecisionMatch[2]==='select') {
       await store.update(db=>{
-        const current=db.negotiations.find(n=>n.id===deal.id);
+        const current=db.negotiations.find(n=>n.id===deal.id);if(current.status!==deal.status)fail('Negotiation changed. Refresh and try again.',409);
         current.selectedOptionId=choice.id;current.decidedAmount=choice.amount;current.status='accepted';current.acceptedAt=now();current.decisionSource='client_selected';
         orderFromNegotiation(db,current,choice,'freelancer_published_and_client_accepted');
         store.activity('order',`Client accepted ${choice.name} · $${choice.amount.toFixed(2)}`,current.projectId);
@@ -187,7 +200,7 @@ async function api(req,res,url) {
       const proposed=validAmount(body.amount,'Counteroffer');
       const note=requiredText(body.note,'Counteroffer explanation',600);
       if (note.length<8)fail('Explain your counteroffer in at least 8 characters.');
-      await store.update(db=>{const current=db.negotiations.find(n=>n.id===deal.id);
+      await store.update(db=>{const current=db.negotiations.find(n=>n.id===deal.id);if(current.status!==deal.status)fail('Negotiation changed. Refresh and try again.',409);
         current.status='countered';current.counter={optionId:choice.id,amount:proposed,note,at:now()};
         store.activity('order',`Client proposed a $${proposed.toFixed(2)} counteroffer`,current.projectId);});
     }
@@ -200,7 +213,7 @@ async function api(req,res,url) {
     const body=await readBody(req);
     if (typeof body.accept!=='boolean') fail('Provide accept: true or false.');
     await store.update(db=>{
-      const current=db.negotiations.find(n=>n.id===deal.id);
+      const current=db.negotiations.find(n=>n.id===deal.id);if(current.status!==deal.status)fail('Negotiation changed. Refresh and try again.',409);
       if (body.accept) {
         const source=current.options.find(o=>o.id===current.counter.optionId);
         const accepted={...source,amount:current.counter.amount};
@@ -227,7 +240,7 @@ async function api(req,res,url) {
     const changeOrder={id:makeId('co'),projectId:project.id,analysisId:analysis.id,
       title:`Additional work · ${analysis.category}`.slice(0,120),
       description:analysis.summary, amount,currency:'USD',status:'approved',source:analysis.source,
-      createdAt:now(),paypalOrderId:null,captureId:null,paidAt:null};
+      accessToken:crypto.randomBytes(24).toString('base64url'),expiresAt:new Date(Date.now()+90*86400000).toISOString(),createdAt:now(),paypalOrderId:null,captureId:null,paidAt:null};
     await store.update(db=>{db.changeOrders.unshift(changeOrder);store.activity('order',`Change order approved for ${project.client} · $${amount.toFixed(2)}`,project.id);});
     return send(res,201,changeOrder);
   }
@@ -240,6 +253,7 @@ async function api(req,res,url) {
       if (orderMatch[2]==='capture') return send(res,200,{status:'COMPLETED',captureId:order.captureId,order:getPublicOrder(order)});
       fail('This change order was already paid.',409);
     }
+    if (!['approved','awaiting_payment'].includes(order.status))fail('This change order is not approved for payment.',409);
     if (!paypalReady()) fail('PayPal Sandbox is not configured; add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET to .env.',503);
     if (orderMatch[2]==='paypal-order') {
       if (order.paypalOrderId) return send(res,200,{id:order.paypalOrderId});
@@ -268,37 +282,52 @@ function staticFile(res, route) {
   let stats;
   try {stats=fs.statSync(normalized);}catch{return send(res,404,{error:'Not found'});}
   if (!stats.isFile()) return send(res,404,{error:'Not a file'});
-  res.writeHead(200,{'Content-Type':mimetypes[path.extname(normalized)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'strict-origin-when-cross-origin'});
+  res.writeHead(200,{'Content-Type':mimetypes[path.extname(normalized)]||'application/octet-stream','Cache-Control':'no-cache','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'});
   fs.createReadStream(normalized).pipe(res);
 }
-// Optional basic access protection for the freelancer workspace on a public demo.
-// Client negotiation invitations and PayPal checkout retain separate public links.
-function adminAuthorized(req, pathname) {
-  const password=process.env.ADMIN_PASSWORD;
-  if(!password) return true; // local mode; Render startup requires this to be set
-  const publicApi = pathname==='/api/health' || pathname==='/api/config' ||
-    pathname.startsWith('/api/public/') ||
-    /^\/api\/change-orders\/[^/]+\/(paypal-order|capture)$/.test(pathname);
-  const publicPage=pathname.startsWith('/pay/') || pathname.startsWith('/negotiate/') ||
-    /^\/(logo\.svg|styles\.css|app\.js|pay\.js|negotiate\.js)$/.test(pathname);
-  if (publicApi||publicPage) return true;
-  const header=req.headers.authorization||'';
-  if (!header.startsWith('Basic ')) return false;
-  let credentials;
-  try {credentials=Buffer.from(header.slice(6),'base64').toString('utf8');}catch{return false;}
-  const sep=credentials.indexOf(':');
-  if(sep<0)return false;
-  const username=credentials.slice(0,sep), entered=credentials.slice(sep+1);
-  const same=(a,b)=>{const left=crypto.createHash('sha256').update(a).digest(),right=crypto.createHash('sha256').update(b).digest();return crypto.timingSafeEqual(left,right);};
-  return same(username,process.env.ADMIN_USERNAME||'demo') && same(entered,password);
+function clientOrderAllowed(req,url) {
+  const match=url.pathname.match(/^\/api\/(?:public\/)?change-orders\/([^/]+)(?:\/(?:paypal-order|capture))?$/);
+  if(!match)return false;
+  const order=store.data.changeOrders.find(o=>o.id===match[1]);
+  const token=req.headers['x-client-token']||url.searchParams.get('token');
+  return Boolean(order&&!order.revokedAt&&Date.parse(order.expiresAt)>Date.now()&&typeof token==='string'&&token.length>20&&order.accessToken===token);
 }
 export function buildServer(){
+  const auth=createAuth();
+  const activeMutations=new Set();
   return http.createServer(async(req,res)=>{
     res.setHeader('X-Frame-Options','DENY');
     try {
       const url=new URL(req.url,`http://${req.headers.host||'localhost'}`);
-      if (!adminAuthorized(req,url.pathname)) {res.setHeader('WWW-Authenticate','Basic realm="ScopePay freelancer workspace"');return send(res,401,{error:'Workspace access required.'});}
-      if (url.pathname.startsWith('/api/')) return await api(req,res,url);
+      res.setHeader('Referrer-Policy','no-referrer');
+      const route=url.pathname,mutating=!['GET','HEAD'].includes(req.method);
+      await auth.load(req,res);
+      const admin=auth.authenticated(req);
+      req.workspaceAuthorized=admin;
+      if(route==='/api/auth/session'&&req.method==='GET'){
+        req.session.csrf ||= crypto.randomBytes(32).toString('base64url');
+        return send(res,200,{authenticated:admin,csrfToken:req.session.csrf});
+      }
+      if(route==='/api/auth/login'&&req.method==='POST'){
+        if(!auth.csrf(req))return send(res,403,{error:'Refresh the workspace and try again.'});
+        return send(res,200,await auth.login(req,await readBody(req)));
+      }
+      if(route==='/api/auth/logout'&&req.method==='POST'){
+        if(!admin)return send(res,401,{error:'Administrator login required.'});
+        if(!auth.csrf(req))return send(res,403,{error:'Invalid CSRF token.'});
+        await auth.logout(req);res.setHeader('Set-Cookie','scopepay.sid=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');return send(res,200,{ok:true});
+      }
+      const publicApi=['/api/health','/api/config','/api/state'].includes(route)||/^\/api\/public\/negotiations\/[^/]+(?:\/(?:select|counter))?$/.test(route);
+      const clientOrder=clientOrderAllowed(req,url);
+      if(route.startsWith('/api/')&&!publicApi&&!clientOrder&&!admin)return send(res,401,{error:'Private data and live actions require workspace access. Unlock in Integrations, or use your client invitation.'});
+      if(mutating&&admin&&!publicApi&&!clientOrder&&!auth.csrf(req))return send(res,403,{error:'Invalid CSRF token. Refresh and try again.'});
+      if (route.startsWith('/api/')) {
+        // Prevent concurrent duplicate selections, order creation, and capture in this single-process deployment.
+        const key=mutating?(route.match(/^\/api\/(?:public\/)?(?:change-orders|negotiations)\/([^/]+)/)?.[1]):null;
+        if(key&&activeMutations.has(key))return send(res,409,{error:'A request is already processing. Please refresh shortly.'});
+        if(key)activeMutations.add(key);
+        try{return await api(req,res,url);}finally{if(key)activeMutations.delete(key);}
+      }
       if (req.method!=='GET' && req.method!=='HEAD') return send(res,405,{error:'Method not allowed'});
       return staticFile(res,url.pathname);
     } catch (error) {

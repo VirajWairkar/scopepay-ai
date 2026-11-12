@@ -1,4 +1,4 @@
-# ScopePay AI 2.1 — Supabase + Render deployment checklist
+# ScopePay AI — Supabase + Render deployment checklist
 
 Follow the full [README](../README.md) for explanations and security guidance. This short checklist is designed to use alongside your browser.
 
@@ -10,7 +10,7 @@ Follow the full [README](../README.md) for explanations and security guidance. T
 - [ ] Include `sslmode=require` (without duplicating query parameters).
 - [ ] **Do not share the connection string**. Save it only in `.env` or Render's secret env variables.
 - [ ] Locally run `npm install` and `npm start` with `DATABASE_URL` configured.
-- [ ] Confirm `http://localhost:3000/api/health` returns `storage: postgresql`.
+- [ ] Confirm `http://localhost:3000/api/health` returns `{ "ok": true }`; confirm PostgreSQL in the unlocked Integrations view.
 - [ ] Find five `scopepay_*` tables in Supabase Table Editor. The backend creates them on first boot; no manual SQL execution is needed.
 
 ## 2. GitHub
@@ -27,8 +27,8 @@ Follow the full [README](../README.md) for explanations and security guidance. T
 - [ ] Add `GEMINI_MODEL=gemini-2.5-flash`, `PAYPAL_ENV=sandbox`, `HOST=0.0.0.0`.
 - [ ] Add `ADMIN_USERNAME=demo` and a strong **secret** `ADMIN_PASSWORD`.
 - [ ] Don't manually override Render's `PORT`.
-- [ ] Check `https://<service>.onrender.com/api/health` returns HTTP 200 and PostgreSQL storage.
-- [ ] Check root page prompts for workspace login; check client invitation link opens without that login.
+- [ ] Check `https://<service>.onrender.com/api/health` returns HTTP 200 and `{ "ok": true }`.
+- [ ] Check the original homepage opens without any login challenge; unlock private operations in Integrations. Client links require their own token.
 
 ## 4. Test full workflow
 

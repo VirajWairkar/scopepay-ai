@@ -1,3 +1,4 @@
+import {adminClient} from './helpers.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -32,12 +33,9 @@ test('freelancer publish → client counter → freelancer accepts → payment o
  const tmp=fs.mkdtempSync(path.join(os.tmpdir(),'scopepay-neg-'));
  const port=34000+Math.floor(Math.random()*1800);
  const proc=spawn(process.execPath,['server/index.mjs'],{cwd,
-  env:{...process.env,PORT:String(port),HOST:'127.0.0.1',DATA_FILE:path.join(tmp,'db.json'),GEMINI_API_KEY:'',PAYPAL_CLIENT_ID:'',PAYPAL_CLIENT_SECRET:''},stdio:'pipe'});
+  env:{...process.env,DATABASE_URL:'',ADMIN_USERNAME:'test-admin',ADMIN_PASSWORD:'test-password',SESSION_SECRET:'test-session-secret-at-least-32-characters',NODE_ENV:'test',RENDER:'',PORT:String(port),HOST:'127.0.0.1',DATA_FILE:path.join(tmp,'db.json'),GEMINI_API_KEY:'',PAYPAL_CLIENT_ID:'',PAYPAL_CLIENT_SECRET:''},stdio:'pipe'});
  const base=`http://127.0.0.1:${port}`;
- const call=async(endpoint,method='GET',body)=>{
-  const response=await fetch(base+endpoint,{method,headers:{'Content-Type':'application/json'},...(body!==undefined?{body:JSON.stringify(body)}:{})});
-  const json=await response.json();return {status:response.status,body:json};
- };
+ const call=adminClient(base);
  try{
   let started=false;for(let i=0;i<60;i++){try{if((await call('/api/health')).status===200){started=true;break;}}catch{}await wait(60);}assert.ok(started);
   const a=await call('/api/projects/proj_atelier/analyze/sample','POST',{requestText:'Can we add a booking calendar and collect a deposit?'});
@@ -62,7 +60,7 @@ test('freelancer publish → client counter → freelancer accepts → payment o
   assert.equal(state.body.changeOrders[0].amount,50);
   assert.equal(state.body.changeOrders[0].negotiationId,neg.body.id);
   const publicAccepted=await call(`/api/public/negotiations/${token}`);
-  assert.equal(publicAccepted.body.checkoutUrl,`/pay/${resolved.body.changeOrderId}`);
+  assert.ok(publicAccepted.body.checkoutUrl.startsWith(`/pay/${resolved.body.changeOrderId}?token=`));
   assert.equal(publicAccepted.body.paymentOrder.amount,50);
   assert.equal(publicAccepted.body.paymentOrder.status,'approved');
   assert.equal((await call(`/api/public/negotiations/${token}/select`,'POST',{optionId:'full'})).status,409);
