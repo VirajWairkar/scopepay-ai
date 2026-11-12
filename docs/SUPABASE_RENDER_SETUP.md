@@ -1,43 +1,35 @@
-# ScopePay AI — Supabase + Render deployment checklist
+# Supabase + Render Setup (ScopePay AI 2.2)
 
-Follow the full [README](../README.md) for explanations and security guidance. This short checklist is designed to use alongside your browser.
+## Supabase
 
-## 1. Supabase
+- [ ] Create a Supabase project and strong database password.
+- [ ] Open **Connect** and choose **Session pooler**, port 5432.
+- [ ] Copy the PostgreSQL URI and percent-encode special characters in the password.
+- [ ] Store the URI as the Render secret `DATABASE_URL`.
+- [ ] Do not use the direct IPv6 host if Render reports `ENETUNREACH`.
+- [ ] The application applies the additive schema migration automatically.
 
-- [ ] Create Supabase project at https://supabase.com/dashboard/projects
-- [ ] From project dashboard choose **Connect → Session pooler** (`:5432`). Copy the displayed PostgreSQL connection URI.
-- [ ] Replace password placeholder with your actual database password and percent-encode special characters.
-- [ ] Include `sslmode=require` (without duplicating query parameters).
-- [ ] **Do not share the connection string**. Save it only in `.env` or Render's secret env variables.
-- [ ] Locally run `npm install` and `npm start` with `DATABASE_URL` configured.
-- [ ] Confirm `http://localhost:3000/api/health` returns `{ "ok": true }`; confirm PostgreSQL in the unlocked Integrations view.
-- [ ] Find five `scopepay_*` tables in Supabase Table Editor. The backend creates them on first boot; no manual SQL execution is needed.
+## Render environment variables
 
-## 2. GitHub
+- [ ] `NODE_ENV=production`
+- [ ] `HOST=0.0.0.0`
+- [ ] `DATABASE_URL` — Supabase Session Pooler URI (secret)
+- [ ] `SESSION_SECRET` — random persistent value, 32+ characters (secret)
+- [ ] `CREDENTIALS_ENCRYPTION_KEY` — 32 random bytes encoded as base64 (secret)
+- [ ] `GEMINI_MODEL=gemini-2.5-flash`
+- [ ] `PAYPAL_ENV=sandbox`
 
-- [ ] Upload only source files, README, license, `.env.example`, `render.yaml`, scripts, and tests.
-- [ ] Confirm neither `.env` nor `server/data/store.json` appears in GitHub or Git history.
-- [ ] If any secret was committed, rotate it and remove it from history.
+Do not add a shared Gemini API key or PayPal merchant secret for public visitor functionality. Each visitor connects their own integrations on the website. `ADMIN_USERNAME` and `ADMIN_PASSWORD` are optional; configure both only if the site owner needs the legacy-record access panel. They are not required for normal visitor access.
 
-## 3. Render
+## Deploy
 
-- [ ] Render → New Web Service → connect GitHub repository.
-- [ ] Build: `npm install --omit=dev` / Start: `npm start`.
-- [ ] Add `DATABASE_URL`, `GEMINI_API_KEY`, `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET` as **secret env vars**.
-- [ ] Add `GEMINI_MODEL=gemini-2.5-flash`, `PAYPAL_ENV=sandbox`, `HOST=0.0.0.0`.
-- [ ] Add `ADMIN_USERNAME=demo` and a strong **secret** `ADMIN_PASSWORD`.
-- [ ] Don't manually override Render's `PORT`.
-- [ ] Check `https://<service>.onrender.com/api/health` returns HTTP 200 and `{ "ok": true }`.
-- [ ] Check the original homepage opens without any login challenge; unlock private operations in Integrations. Client links require their own token.
+- [ ] Build command: `npm install --omit=dev`
+- [ ] Start command: `npm start`
+- [ ] Health check: `/api/health`
+- [ ] Confirm the site opens without a login prompt.
+- [ ] Open a second browser/incognito session and confirm it receives a separate workspace.
+- [ ] Verify that projects created in one browser are not visible in the other.
+- [ ] Connect a Gemini API key and validate live analysis.
+- [ ] Connect a PayPal Sandbox Business app and test checkout with a separate Sandbox Personal buyer.
 
-## 4. Test full workflow
-
-- [ ] Run Gemini AI analysis on a new client request (not sample preview).
-- [ ] Publish AI-generated negotiation alternatives.
-- [ ] Accept a paid option from the client invite link.
-- [ ] Use a **Sandbox Personal buyer** and complete a small PayPal Sandbox payment.
-- [ ] Confirm `Paid` and a capture ID.
-- [ ] Restart/redeploy and ensure the paid record remains in Supabase.
-- [ ] Record your demo under three minutes.
-
-**Current verification note:** Automated tests cover adapters and mocked integrations. A real Supabase connection and live PayPal/Gemini end-to-end hosted test require your own accounts; they are not performed by the package generator.
+Keep `SESSION_SECRET` and `CREDENTIALS_ENCRYPTION_KEY` unchanged between deploys. Do not commit `.env` or database data.

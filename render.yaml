@@ -15,15 +15,9 @@ services:
         value: sandbox
       - key: GEMINI_MODEL
         value: gemini-2.5-flash
-      - key: ADMIN_USERNAME
-        value: demo
-      - key: ADMIN_PASSWORD
-        sync: false
       - key: DATABASE_URL
         sync: false
-      - key: GEMINI_API_KEY
+      - key: SESSION_SECRET
         sync: false
-      - key: PAYPAL_CLIENT_ID
-        sync: false
-      - key: PAYPAL_CLIENT_SECRET
+      - key: CREDENTIALS_ENCRYPTION_KEY
         sync: false

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 
-export const makeId = (prefix) => `${prefix}_${crypto.randomUUID().replaceAll('-', '').slice(0, 12)}`;
+export const makeId = (prefix) => `${prefix}_${crypto.randomUUID().replaceAll('-', '')}`;
 export const now = () => new Date().toISOString();
 
 const demoProjects = [

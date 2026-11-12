@@ -1,24 +1,31 @@
-# ScopePay AI 2.1 — AI Negotiation + PayPal Sandbox
+# ScopePay AI — AI Scope Negotiation & PayPal Sandbox
 
-**A working, open-source freelancer scope-negotiation and sandbox-payment prototype.**
+ScopePay AI helps freelancers compare a new client request with an original project agreement. Gemini can explain potential scope changes, estimate additional effort, and suggest negotiation options. The freelancer reviews and publishes the options; the client can accept or counteroffer. An approved paid change can proceed through PayPal Sandbox checkout.
 
-ScopePay AI helps freelancers compare a client's new request against a written project agreement. **Google Gemini** explains potential scope changes and suggests evidence-backed estimates and three approaches: a full build, a lean alternative, or a written scope exchange. The freelancer reviews the terms, the client chooses or counteroffers, and accepted paid changes can be completed through **PayPal Sandbox**. The application marks payments **Paid only after server-side capture verification**.
+**This version uses public anonymous visitor workspaces.** No ScopePay username or password is required. Each visitor gets a private workspace tied to a secure browser session and connects their own Gemini API key and PayPal Sandbox merchant app. All visitors can use the same Supabase PostgreSQL database, but application records are scoped to the visitor who owns them.
 
-This version supports **Supabase PostgreSQL + Render Web Service** *and* the original local JSON storage mode. All payments are simulated PayPal Sandbox transactions; the application is a hackathon demo, not a production invoicing or escrow system.
+This is a hackathon prototype, not a production invoicing, escrow, or legally binding e-signature platform. PayPal payments are Sandbox-only and do not move real money.
 
-## 1. Run locally (easiest way to explore)
+## 1. Run locally
 
-**Prerequisites:** Node.js **20.11+**, npm, and a browser.
+Requirements: Node.js 20.11+ and npm.
 
 ```bash
-# From the root of this repository:
 npm install
 npm start
 ```
 
-Open **http://localhost:3000**. Without workspace credentials, the original homepage shows only the three fictional seed projects and navigation. Private records and state-changing actions remain locked. In the existing **Integrations** page, enter `ADMIN_USERNAME` and `ADMIN_PASSWORD` to unlock the full original workspace, including sample analysis, live Gemini, and Sandbox payments. There is no separate login page or browser authentication prompt.
+Open `http://localhost:3000`. A visitor session is created automatically. The first visit receives three fictional sample projects:
 
-To use real AI + sandbox checkout, copy `.env.example` to `.env`:
+- Atelier — Brand Website
+- Northstar — Mobile App
+- Solace — Content Refresh
+
+You can explore sample data and create projects without connecting an integration. A live Gemini analysis requires your own API key. PayPal checkout requires your own Sandbox merchant credentials.
+
+### Local environment setup
+
+Copy `.env.example` to `.env`:
 
 ```powershell
 # Windows PowerShell
@@ -30,160 +37,129 @@ Copy-Item .env.example .env
 cp .env.example .env
 ```
 
-Set your credentials in `.env`:
+Generate two persistent secrets:
 
-```dotenv
-GEMINI_API_KEY=your_own_gemini_key
-GEMINI_MODEL=gemini-2.5-flash
-PAYPAL_CLIENT_ID=your_own_sandbox_business_app_client_id
-PAYPAL_CLIENT_SECRET=your_own_sandbox_business_app_secret
-PAYPAL_ENV=sandbox
-HOST=127.0.0.1
-PORT=3000
-# Leave DATABASE_URL blank to use local JSON storage.
-DATABASE_URL=
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('base64'))"
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
 
-- Get a Gemini API key at [Google AI Studio](https://aistudio.google.com/apikey).
-- Get your PayPal **Sandbox** Client ID and Secret at [PayPal Developer](https://developer.paypal.com/dashboard/applications/sandbox). The app must be associated with a **Sandbox Business** account.
-- Checkout uses a separate **Sandbox Personal** account as buyer. You can create one at [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts). US Business + US Personal + USD is a simple testing combination. **Do not use real payment credentials.**
-- Restart `npm start` after updating `.env`. Never put an API secret in GitHub, client JavaScript, or the demo video.
+Put the first value in `SESSION_SECRET` and the second in `CREDENTIALS_ENCRYPTION_KEY`. Keep both private and stable. Changing the encryption key makes previously saved API credentials unreadable.
 
-## 2. Complete end-to-end test
+For local JSON mode, leave `DATABASE_URL` blank. The app uses `server/data/store.json` for the private legacy workspace and `server/data/store.json.tenants.json` for visitor workspaces. These files are ignored by Git.
 
-1. Open **Integrations** and unlock the workspace, then open **AI Scope Analyzer**, select one of the three demo projects or create your own in **My Projects**.
-2. Type a new client request and choose **Analyze with Gemini**. A live analysis requires your key. The sample button is clearly marked as a non-live walkthrough.
-3. Examine agreement evidence, itemized hours and Gemini's suggested alternatives.
-4. Open **Negotiation Studio**. Review/change the options and amounts, then **Publish client options**.
-5. Open the generated `/negotiate/<token>` link in another tab (this is the client's view). Accept an option or send a counteroffer.
-6. If countered, return to the freelancer workspace and explicitly accept or decline it.
-7. For an accepted **paid** option, open the token-bearing checkout page, sign in as a **Sandbox Personal buyer**, and approve payment in PayPal.
-8. Verify the dashboard/change order becomes **Paid** with a PayPal capture ID. A $0 scope exchange requires agreement but does not trigger PayPal payment.
+## 2. Connect your own integrations
 
-For your hackathon video, use a small Sandbox charge such as $10. The server checks the expected exact USD amount and PayPal capture status. A visible PayPal button alone is not proof of payment.
+Open **Integrations** in the website.
 
-## 3. Supabase PostgreSQL setup (persistent storage)
+### Gemini AI
 
-The cloud version stores data in **five PostgreSQL tables** (project, analysis, negotiation, change-order, activity). Each row is a JSONB record so existing records/UI stay compatible. Mutations are persisted in PostgreSQL transactions; the app does not fall back silently if `DATABASE_URL` is invalid.
+1. Create an API key in [Google AI Studio](https://aistudio.google.com/apikey).
+2. Paste it into the Gemini API key field.
+3. Select **Connect Gemini**.
+4. Once validated, live analysis is available in AI Scope Analyzer.
 
-1. Create a new project at [Supabase](https://supabase.com/dashboard/projects). Set a **strong database password** and keep it private.
-2. In the project dashboard, click **Connect**. Choose **Session pooler** (the shared pooler; port **5432**), especially for Render's IPv4 network. Do **not** confuse it with the Direct (IPv6-only on free projects) or Transaction pooler (port 6543) connection.
-3. Copy the entire PostgreSQL URI shown by Supabase. Replace its `[YOUR-PASSWORD]` placeholder with your DB password. **Percent-encode special characters**, e.g. `%40` for `@` or `%23` for `#`. Add `?sslmode=require` if the URI does not already have SSL enabled.
-4. Put the string in `.env` as `DATABASE_URL=postgresql://...` to test from your own computer, or in Render's secret environment settings (see next section). **Never add it to the frontend.**
-5. Run `npm install` and `npm start`. At the first successful PostgreSQL startup, the backend automatically creates the tables using `server/sql/001_init.sql`, enables Row Level Security with no public policies, and seeds the three example projects. Later starts read the saved PostgreSQL data.
-6. Visit `/api/health`. You should see `"ok":true` (confirm PostgreSQL in the unlocked Integrations view). Create a project, restart the server, and confirm it still exists.
+The key is sent to the backend over HTTPS and encrypted before storage. It is not saved in browser storage and is never returned to the browser. Each visitor has a separate credential record.
 
-**Important:** You do **not** need to paste SQL manually into the Supabase dashboard. The backend creates the schema using your privileged server-side database connection. Keep your Supabase Postgres connection URI secret; never use the browser with these database credentials.
+### PayPal Sandbox
 
-## 4. Deploy on Render (hosted demo)
+1. Open [PayPal Developer](https://developer.paypal.com/dashboard/applications/sandbox).
+2. Create or select a Sandbox REST app associated with a Sandbox Business merchant account.
+3. Copy that app's Sandbox Client ID and Client Secret.
+4. Enter both values in **Integrations** and select **Connect PayPal Sandbox**.
+5. Use a separate Sandbox Personal account as the buyer when testing checkout. You can manage test accounts in [PayPal Sandbox Accounts](https://developer.paypal.com/dashboard/accounts).
 
-**Before deploying:** push the source files (but not `.env`, `store.json`, passwords, or tokens) to a **public GitHub repository** with the root `LICENSE` file.
+ScopePay validates the credentials against PayPal Sandbox OAuth. Client Secret values are encrypted server-side and are never returned to the browser. The public PayPal Client ID is provided only where the PayPal JavaScript SDK needs it. Live PayPal credentials are not supported.
 
-1. Open [Render Dashboard](https://dashboard.render.com/) → **New** → **Web Service** and connect your GitHub repository. Alternatively use the included `render.yaml` Blueprint.
-2. Choose the service root directory containing `package.json` (usually the repository root), runtime **Node**, and your preferred plan.
-3. Configure **Build Command**: `npm install --omit=dev`.
-4. Configure **Start Command**: `npm start`.
-5. Add these environment variables in **Render → Environment**:
+## 3. Visitor privacy and session behavior
+
+- Every visitor receives a cryptographically random anonymous workspace ID stored in a signed, HttpOnly session cookie.
+- Projects, analyses, negotiations, change orders, activity records, and integration credentials are scoped to that workspace on the server.
+- The server never trusts a visitor ID supplied in a request body.
+- Changing record IDs does not grant access to another visitor's data.
+- Existing rows from the previous shared workspace remain `owner_id IS NULL` in PostgreSQL and are not shown to public visitors.
+- If the owner needs to access those legacy records, configure optional `ADMIN_USERNAME` and `ADMIN_PASSWORD` on the server. An **Optional owner access** panel then appears in Integrations. It is separate from anonymous visitor access; normal visitors never need it.
+- Client negotiation and payment links use separate high-entropy, expiring capability tokens. Only the specific negotiation or payment order is exposed through that link.
+- Clearing browser cookies or using another device creates a new anonymous workspace. There is no account recovery or cross-device sync for anonymous visitors.
+- Local JSON session storage is process-local for development. Render uses the PostgreSQL session table so sessions survive service restarts.
+
+For production-grade account recovery, use registered user accounts with email verification, MFA, and explicit account recovery rather than relying on anonymous sessions.
+
+## 4. Supabase PostgreSQL setup
+
+1. Create a project at [Supabase](https://supabase.com/dashboard/projects).
+2. Open **Connect** and select **Session pooler** (port 5432). This is recommended for Render's IPv4 environment. Avoid the direct connection if Render reports IPv6 `ENETUNREACH`.
+3. Copy the PostgreSQL URI and replace `[YOUR-PASSWORD]` with your database password. Percent-encode special characters in the password (for example, `@` as `%40`).
+4. Set the full URI as `DATABASE_URL` locally or in Render.
+5. Start the application. The backend applies the additive schema migration automatically.
+
+The migration adds `owner_id` columns to the existing data tables. Existing records are preserved with a NULL owner and remain in the private legacy workspace. New visitor records are written with a server-generated owner ID. Additional tables store anonymous sessions, encrypted integration credentials, visitor IDs, and hashed client-link tokens.
+
+The backend connects using the privileged server-side PostgreSQL URI. Do not put the database URI or Supabase service credentials in frontend code. RLS is enabled and no public policies are created.
+
+## 5. Deploy on Render
+
+The included `render.yaml` configures a Node web service. Connect the GitHub repository to Render or deploy the Blueprint.
+
+Set these environment variables in Render:
 
 | Variable | Value |
-| --- | --- |
-| `DATABASE_URL` | **Secret**: Supabase Session pooler PostgreSQL URI with SSL required |
-| `GEMINI_API_KEY` | **Secret**: your Gemini key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` |
-| `PAYPAL_CLIENT_ID` | **Secret**: your PayPal Sandbox Business app Client ID |
-| `PAYPAL_CLIENT_SECRET` | **Secret**: matching Sandbox Client Secret |
-| `PAYPAL_ENV` | `sandbox` |
+|---|---|
+| `NODE_ENV` | `production` |
 | `HOST` | `0.0.0.0` |
-| `ADMIN_USERNAME` | `demo` (or another name) |
-| `ADMIN_PASSWORD` | **Secret**: strong password protecting the freelancer workspace |
+| `DATABASE_URL` | Secret: Supabase Session Pooler PostgreSQL URI |
+| `SESSION_SECRET` | Secret: random value with at least 32 characters; keep stable |
+| `CREDENTIALS_ENCRYPTION_KEY` | Secret: 32 random bytes encoded as base64; keep stable |
+| `GEMINI_MODEL` | `gemini-2.5-flash` |
+| `PAYPAL_ENV` | `sandbox` |
 
-Render sets the `PORT` environment variable itself; **do not hardcode a public port**. The app listens on `0.0.0.0:$PORT` on Render. The health check path is `/api/health`.
+Do **not** configure a shared `GEMINI_API_KEY`, `PAYPAL_CLIENT_ID`, or `PAYPAL_CLIENT_SECRET` for public visitors. Visitors connect their own keys through Integrations. `ADMIN_USERNAME` and `ADMIN_PASSWORD` are optional; configure both only if the owner needs the legacy-record access panel. They are not required for normal public access.
 
-6. Deploy. Open `https://your-name.onrender.com/api/health` and verify `"ok":true` and `"ok":true` (confirm PostgreSQL in the unlocked Integrations view).
-7. Open the original homepage without a login prompt. To access private records or live actions, unlock the workspace inside the existing **Integrations** page with `ADMIN_USERNAME`/`ADMIN_PASSWORD`. Client invitation and checkout links use their own scoped capabilities.
-8. Test **Gemini analysis → publish negotiation → client accepts → sandbox PayPal checkout → Paid** on Render. Restart/redeploy and confirm data remains present in Supabase.
+Build command: `npm install --omit=dev`  
+Start command: `npm start`  
+Health check: `/api/health`
 
-**Security and limitations:** The public homepage uses only fictional seed records. Private database records, Gemini calls, project mutations, negotiation publication, and payment operations require workspace authorization; client-specific links have narrowly scoped capabilities. Workspace access uses HttpOnly, SameSite=Lax sessions, Secure cookies in production, CSRF checks, expiry, logout (Lock workspace), and login rate limiting. No browser Basic Auth challenge is sent. `SESSION_SECRET` is optional (32+ random characters if supplied); otherwise a fresh random process-local secret is generated. Sessions reset after restart. Keep administrator credentials and client links confidential. Use exactly one Node process / Render instance; distributed coordination, MFA, and webhook reconciliation are not implemented.
+The server refuses to start in Render if the persistent database URL, session secret, or credential-encryption key is missing. Render supplies `PORT`; the app binds to `0.0.0.0`.
 
-**Existing checkout links:** Negotiation token values are retained. Additive token/expiry metadata protects checkout access without deleting records. Old bare `/pay/<id>` links must be reshared using the token-bearing link from the original Change Orders page, or reached through a valid negotiation link. Existing additive fields in Supabase are retained; this interface restoration does not remove database records or tables.
+## 6. End-to-end demo flow
 
-## 5. Optional: import YOUR earlier local JSON records
+1. Open the public site without entering credentials.
+2. Explore one of the three fictional sample projects or create your own project.
+3. Connect your Gemini key in Integrations.
+4. Analyze a client request and review evidence, estimated hours, and options.
+5. Publish client options and open the generated `/negotiate/<token>` link in another tab.
+6. Accept an option or submit a counteroffer.
+7. Return to the freelancer workspace to resolve a counteroffer if needed.
+8. Connect a PayPal Sandbox Business merchant app in Integrations.
+9. Open the generated payment link and pay with a separate Sandbox Personal buyer account.
+10. Verify that the change order becomes **Paid** only after server-side PayPal capture verification.
 
-The repository deliberately **does not contain your real `server/data/store.json`** because it might include client details, analyses and sandbox transaction history. You can preserve it locally:
+A sample analysis is clearly labeled as sample data and is not presented as a live Gemini response.
 
-1. Stop both server versions and back up the original `store.json`.
-2. Copy your old `store.json` into this project's `server/data/` directory (it is ignored by Git).
-3. Set `DATABASE_URL` to a **fresh Supabase workspace** with no custom records. If your Render app has already created custom records, don't run this import without a plan to merge them.
-4. Preview the record counts:
-
-   ```bash
-   npm run import:json -- --file server/data/store.json
-   ```
-
-5. If correct, perform the explicit one-time import:
-
-   ```bash
-   npm run import:json -- --file server/data/store.json --apply
-   ```
-
-6. Restart `npm start`. The import refuses to overwrite a nonempty PostgreSQL workspace. **Never publish the old file**, even if its contents appear to be only sandbox activity.
-
-If no import is needed, skip this section; your hosted app will start with the three example projects and empty payment history.
-
-## 6. Run automated tests
+## 7. Tests and troubleshooting
 
 ```bash
 npm test
 ```
 
-The suite covers Gemini normalization, PayPal request/capture validation (with mocked APIs), local JSON storage, PostgreSQL adapter persistence and rollback (with a mocked PostgreSQL connection), admin workspace access, public client negotiation and UI smoke tests.
+Useful checks:
 
-**Verification scope:** This repository's automated tests do not require API keys and **do not perform a live Gemini request, real Supabase connection, or actual PayPal Sandbox purchase**. You must run those integration checks with your own credentials. No unverified payments are marked Paid.
+- `GET /api/health` confirms the Node service is running.
+- `GET /api/config` returns only the current visitor's integration connection status.
+- A new incognito browser should receive a separate set of sample projects and a separate workspace.
+- A project ID copied from another browser should return 404 when used from the current browser.
+- A Gemini key must be connected before live analysis.
+- A PayPal Sandbox merchant app must be connected before creating or capturing an order.
+- A client payment link must include its token and must not be shared publicly.
 
-## 7. Troubleshooting
+If saved credentials cannot be decrypted, confirm that `CREDENTIALS_ENCRYPTION_KEY` is unchanged. If visitors lose sessions after deployment, confirm that `SESSION_SECRET` remains stable and that `DATABASE_URL` uses the Supabase Session Pooler. If Render reports `ENETUNREACH` for an IPv6 Supabase address, switch to the Session Pooler URI.
 
-| Problem | Action |
-| --- | --- |
-| `Gemini 503 / high demand` | Wait and retry; check model and free-tier limits in AI Studio. No successful analysis should be invented. |
-| `PayPal OAuth 401` | Re-check the same **Sandbox Business app** Client ID/Secret, not a buyer password. |
-| PayPal `UNSUPPORTED_PAYEE_CURRENCY` | Test with a US Business Sandbox seller and a US Personal Sandbox buyer for USD. |
-| PayPal remembers another buyer | Log out of sandbox.paypal.com, or use a fresh Incognito session. |
-| Render no open ports | Set `HOST=0.0.0.0`; don't override the Render-provided `PORT`. |
-| `getaddrinfo ENETUNREACH` or PostgreSQL connection failure | On Render use Supabase **Session pooler** (port 5432) rather than a direct IPv6 connection. Check the password and SSL URI. |
-| `Cannot find package 'pg'` | Run `npm install` before starting. |
-| Live action returns HTTP 401 | Unlock private workspace access in Integrations. The homepage itself needs no login. |
-| Old transactions absent on new database | See optional JSON migration above. Old JSON is never uploaded automatically. |
-| Data disappears on restart | Check `/api/health` shows `postgresql`; without `DATABASE_URL` the app uses local JSON, which is ephemeral on Render. |
+## 8. Security limitations
 
-## 8. Project structure
+This version implements anonymous visitor isolation and encrypted server-side storage for BYOK credentials, but it is still a hackathon prototype. It does not provide registered accounts, MFA, account recovery, formal tenant-management controls, or a full security audit. Anonymous workspaces are recoverable only while the browser session remains available. Rate limits and usage limits should be strengthened before a public production launch.
 
-```text
-scopepay-ai/
-├─ client/                 # Freelancer dashboard, client negotiation, PayPal checkout
-├─ server/
-│  ├─ index.mjs             # API routes + workspace authorization
-│  ├─ lib/analysis.mjs      # Gemini AI integration and normalization
-│  ├─ lib/negotiation.mjs   # Negotiation options and validation
-│  ├─ lib/paypal.mjs        # Sandbox Orders v2 + capture verification
-│  ├─ lib/store.mjs         # Local JSON storage fallback and seed data
-│  ├─ lib/postgres-store.mjs# Supabase PostgreSQL adapter
-│  └─ sql/001_init.sql      # Five PostgreSQL tables + RLS enabled
-├─ scripts/import-json.mjs # Optional explicit, protected local migration
-├─ tests/                  # Automated test suite
-├─ docs/                   # Architecture, demo, and submission materials
-├─ .env.example            # Safe placeholders; fill in .env locally
-├─ render.yaml             # Render Blueprint option
-├─ package.json
-├─ Dockerfile
-└─ LICENSE                 # MIT
-```
+Never commit `.env`, database dumps, local tenant JSON files, API keys, PayPal secrets, or session/encryption secrets. If a credential was included in a ZIP or committed to Git, rotate it before using the integration again.
 
-## 9. Hackathon submission checklist
+## License
 
-- Include public repository URL, source code, `.env.example`, and complete local run instructions.
-- Keep the root `LICENSE` file visible on GitHub.
-- Provide a **YouTube video under three minutes** showing real Gemini analysis and a real PayPal **Sandbox** checkout and captured payment.
-- Describe how Gemini and PayPal are meaningfully integrated, identify the audience and provide honest limitations.
-- A hosted URL is optional under the original rules, but can improve judge accessibility if configured safely and tested.
-
-**License:** MIT; see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).

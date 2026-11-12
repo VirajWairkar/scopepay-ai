@@ -5,7 +5,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import {makePostgresStore} from '../server/lib/postgres-store.mjs';
+import {makePostgresTenantStore} from '../server/lib/tenant-store.mjs';
 import {initialStore} from '../server/lib/store.mjs';
 
 function readEnv(){
@@ -27,13 +27,13 @@ const counts=Object.fromEntries(['projects','analyses','negotiations','changeOrd
 console.log('Local file:',path.resolve(file),'\nRecords:',counts);
 if(!args.includes('--apply')){console.log('Preview only. Add --apply to import into a NEW/empty PostgreSQL workspace.');process.exit(0);}
 if(!process.env.DATABASE_URL)throw Error('DATABASE_URL missing in .env');
-const store=await makePostgresStore();
+const store=await makePostgresTenantStore();
 try {
- const data=store.data;
+ const data=await store.loadOwner(null);
  const example=initialStore();
  const hasAnyHistory=data.analyses.length||data.changeOrders.length||data.negotiations.length||data.activities.length>example.activities.length;
  const customProjects=data.projects.some(p=>!example.projects.some(x=>x.id===p.id));
  if(hasAnyHistory||customProjects)throw Error('Target PostgreSQL database already contains user records. Refusing to overwrite.');
- await store.update(d=>{for(const key of ['projects','analyses','negotiations','changeOrders','activities'])d[key]=structuredClone(input[key]);});
+ await store.updateOwner(null,d=>{for(const key of ['projects','analyses','negotiations','changeOrders','activities'])d[key]=structuredClone(input[key]);});
  console.log('Imported records successfully. Restart your application.');
 }finally{await store.close();}

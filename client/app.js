@@ -1,4 +1,4 @@
-let workspaceCsrf='',workspaceUnlocked=false,workspaceSession;
+let csrfToken='',sessionPromise=null,ownerAuthenticated=false;
 const ICONS = {
   grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   spark:'<path d="m12 3-1.8 6.2L4 11l6.2 1.8L12 19l1.8-6.2L20 11l-6.2-1.8L12 3Z"/><path d="m19 17-.7 2.3L16 20l2.3.7L19 23l.7-2.3L22 20l-2.3-.7L19 17Z"/>',
@@ -36,25 +36,33 @@ const date=(s)=>s?new Date(s).toLocaleDateString('en-US',{month:'short',day:'num
 const relative=(s)=>{const d=Date.now()-new Date(s).getTime(); if(d<0)return date(s);if(d<60000)return 'Just now';if(d<3600000)return `${Math.floor(d/60000)} min ago`;if(d<86400000)return `${Math.floor(d/3600000)} hr ago`;return date(s);};
 const SAMPLE_REQUEST='Can we also add an online booking calendar where customers choose available slots, pay a deposit, and automatically receive a confirmation email? It would be great to have this ready at launch.';
 const EXAMPLE_REQUESTS={
- proj_atelier:SAMPLE_REQUEST,
- proj_northstar:'Could we connect Stripe so users can pay for a subscription in the app, and add real push notifications for team accounts? We would like this included in the launch version.',
- proj_solace:'Could you translate all 8 pages into Spanish and also write 4 short video scripts to promote the new content?'
+ atelier:SAMPLE_REQUEST,
+ northstar:'Could we connect Stripe so users can pay for a subscription in the app, and add real push notifications for team accounts? We would like this included in the launch version.',
+ solace:'Could you translate all 8 pages into Spanish and also write 4 short video scripts to promote the new content?'
 };
 const app=document.getElementById('app');
 let data={projects:[],analyses:[],changeOrders:[],negotiations:[],activities:[]};
 let config={aiReady:false,paypalReady:false,paypalClientId:null,aiModel:'gemini-2.5-flash',storageMode:'Local JSON'};
 let page='overview', selectedProjectId='proj_atelier', activeAnalysisId=null,activeOrderId=null,modal=null,working=false,draftRequest='',toastTimeout=null;
 
-async function request(route,method='GET',body) {
-  if(!workspaceCsrf){workspaceSession ||= fetch('/api/auth/session').then(r=>r.json());const session=await workspaceSession;workspaceCsrf=session.csrfToken||'';workspaceUnlocked=Boolean(session.authenticated);}
-  const res=await fetch(route,{method,headers:{'Content-Type':'application/json','X-CSRF-Token':workspaceCsrf},...(body!==undefined?{body:JSON.stringify(body)}:{})});
-  const payload=await res.json().catch(()=>({}));
-  if(res.status===401&&workspaceUnlocked){workspaceCsrf='';workspaceSession=null;workspaceUnlocked=false;await load();}
+async function ensureSession(){
+  if(csrfToken)return;
+  sessionPromise ||= fetch('/api/auth/session').then(async response=>{if(!response.ok)throw new Error('Could not start a visitor session.');return response.json();});
+  const session=await sessionPromise;csrfToken=session.csrfToken||'';ownerAuthenticated=Boolean(session.authenticated);
+}
+async function request(route,method='GET',body){
+  await ensureSession();
+  const options={method,headers:{'Content-Type':'application/json','X-CSRF-Token':csrfToken},...(body!==undefined?{body:JSON.stringify(body)}:{})};
+  let res=await fetch(route,options),payload=await res.json().catch(()=>({}));
+  if(res.status===403&&/csrf/i.test(payload.error||'')){
+    csrfToken='';sessionPromise=null;await ensureSession();options.headers['X-CSRF-Token']=csrfToken;
+    res=await fetch(route,options);payload=await res.json().catch(()=>({}));
+  }
   if(!res.ok)throw new Error(payload.error||`Request failed (${res.status})`);
   return payload;
 }
 async function load(){
-  [config,data]=await Promise.all([request('/api/config'),request('/api/state')]);
+  [config,data]=await Promise.all([request('/api/config'),request('/api/state')]);ownerAuthenticated=Boolean(config.ownerAuthenticated);
   if(!data.projects.some(p=>p.id===selectedProjectId))selectedProjectId=data.projects[0]?.id;
   if(!activeOrderId&&data.changeOrders.length)activeOrderId=data.changeOrders[0].id;
 }
@@ -73,7 +81,7 @@ function aside(){return `<aside class="sidebar"><div class="brand"><img src="/lo
   <span class="sidebar-section" style="padding:22px 15px 9px;margin:0">Manage</span>
   ${navButton('activity','Activity log','clock')}${navButton('integrations','Integrations','settings')}
   </nav><div class="sidebar-spacer"></div><div class="tip-card"><div class="tip-mark">${icon('spark')}</div><b>Don't let extra work go unpaid.</b><p>Analyze new requests against the original brief in seconds.</p><button data-action="nav" data-page="analyzer">Try the analyzer ${icon('arrow',12)}</button></div>
-  <div class="sidebar-profile"><div class="avatar">SP</div><div><strong>Demo workspace</strong><span>PayPal Sandbox · USD</span></div></div>
+  <div class="sidebar-profile"><div class="avatar">SP</div><div><strong>Your workspace</strong><span>PayPal Sandbox · USD</span></div></div>
   </aside>`;}
 const titles={overview:'Overview',analyzer:'AI Scope Analyzer',negotiate:'Negotiation Studio',orders:'Change Orders',projects:'My Projects',activity:'Activity log',integrations:'Integrations'};
 function header(){return `<header class="topbar"><div class="breadcrumb">Workspace &nbsp; / &nbsp; <strong>${titles[page]}</strong></div><div class="top-actions"><div class="status-top"><span class="live-dot"></span><span>Sandbox workspace</span></div><button class="top-icon-btn" data-action="nav" data-page="activity" aria-label="View activity">${icon('bell')}</button><div class="avatar">SP</div></div></header>`;}
@@ -119,8 +127,8 @@ function analyzer(){const p=currentProject(),a=currentAnalysis();if(!p)return em
  <div class="field"><label for="project-select">Select project</label><select id="project-select" class="select">${data.projects.map(pr=>`<option value="${esc(pr.id)}" ${pr.id===p.id?'selected':''}>${esc(pr.name)} — ${esc(pr.client)}</option>`).join('')}</select></div>
  <div class="scope-preview"><div class="scope-title">${icon('file',14)} ORIGINAL AGREED SCOPE</div><p>${esc(p.scope)}</p></div>
  <div class="field"><label for="client-request">New client message</label><textarea id="client-request" class="textarea" placeholder="Paste the client's message or new feature request here…">${esc(draftRequest)}</textarea><span class="hint">The model compares the two texts, not just keywords.</span></div>
- <div class="form-actions"><button class="btn btn-secondary" data-action="fill-sample" ${!EXAMPLE_REQUESTS[p.id]?'disabled title="No example request is available for this project"':''}>${icon('file',15)} Example request</button><button class="btn btn-primary" data-action="analyze" ${working?'disabled':''}>${working?'<span class="spinner"></span> Analyzing…':`${icon('spark',16)} Analyze with Gemini`}</button></div>
- ${!config.aiReady?`<div class="sample-note"><b>AI key not connected.</b> For a real analysis, add <code>GEMINI_API_KEY</code> to your server's .env. ${p.id==='proj_atelier'?`<button class="link" data-action="preview" ${working?'disabled':''}>See a labeled example analysis ${icon('arrow',12)}</button>`:'Choose Atelier to preview a sample result.'}</div>`:`<div class="sample-note">${icon('shield',13)} AI suggestions are advisory. Approve the scope and amount yourself before requesting payment.</div>`}
+ <div class="form-actions"><button class="btn btn-secondary" data-action="fill-sample" ${!EXAMPLE_REQUESTS[p.sampleKey]?'disabled title="No example request is available for this project"':''}>${icon('file',15)} Example request</button><button class="btn btn-primary" data-action="analyze" ${working?'disabled':''}>${working?'<span class="spinner"></span> Analyzing…':`${icon('spark',16)} Analyze with Gemini`}</button></div>
+ ${!config.aiReady?`<div class="sample-note"><b>AI key not connected.</b> Connect your own Gemini API key in Integrations for a live analysis. ${p.sampleKey==='atelier'?`<button class="link" data-action="preview" ${working?'disabled':''}>See a labeled example analysis ${icon('arrow',12)}</button>`:'Choose Atelier to preview a sample result.'}</div>`:`<div class="sample-note">${icon('shield',13)} AI suggestions are advisory. Approve the scope and amount yourself before requesting payment.</div>`}
  </div><div>${resultPanel(a)}</div></div>`;}
 function currentNegAnalysis(){return data.analyses.find(a=>a.id===activeAnalysisId&&a.outOfScope)||data.analyses.find(a=>a.outOfScope);}
 function negotiationPage(){
@@ -157,7 +165,7 @@ function invoice(o){if(!o)return `<div class="card no-order">${icon('files')}<h3
  <div class="invoice-total"><span style="font-size:12px;font-weight:800;color:#6b7891">TOTAL DUE</span><b>${usd(o.amount)}</b></div>
  ${o.status==='paid'?`<div class="receipt-box">${icon('check')}<b>Sandbox payment completed</b><p>PayPal capture ID: ${esc(o.captureId||'—')}</p><p>Paid on ${esc(date(o.paidAt))}</p></div>`:
  `<div class="invoice-actions"><button class="btn btn-secondary" data-action="copy-pay-link" data-id="${esc(o.id)}">${icon('link',16)} Copy client payment link</button><button class="btn btn-secondary" data-action="open-pay" data-id="${esc(o.id)}">${icon('external',16)} Open client checkout</button>
- ${!config.paypalReady?`<div class="integration-info"><b>${icon('alert',14)} PayPal sandbox not configured</b>Add your PayPal sandbox client ID and secret to <code>.env</code> to accept a test payment. The link works after configuration.</div>`:`<div class="pay-frame"><p style="font-size:11px;margin:1px 0 10px">Or complete the checkout below with a PayPal sandbox personal buyer account:</p><div id="paypal-container" class="paypal-container"></div></div>`}</div>`}
+ ${!config.paypalReady?`<div class="integration-info"><b>${icon('alert',14)} PayPal sandbox not configured</b>Connect your own PayPal Sandbox merchant app in Integrations to accept a test payment. The link works after configuration.</div>`:`<div class="pay-frame"><p style="font-size:11px;margin:1px 0 10px">Or complete the checkout below with a PayPal sandbox personal buyer account:</p><div id="paypal-container" class="paypal-container"></div></div>`}</div>`}
  <div class="notice">${icon('shield',17)} <span><strong>Safe by design:</strong> PayPal credentials stay on the server. The server determines the amount and verifies PayPal's captured currency and total before marking it paid. Sandbox only.</span></div>
  </section>`;
 }
@@ -167,11 +175,22 @@ function orders(){const o=selectedOrder();return `${heading('FROM SCOPE TO PAYME
 function projects(){return `${heading('YOUR CLIENT WORK','My projects','Every project starts with a clear agreement.',`<button class="btn btn-primary" data-action="new-project">${icon('plus')} New project</button>`)}
  <div class="projects-grid">${data.projects.map((p,i)=>`<article class="card project-tile"><div class="tile-top"><div class="project-square ${projectColor(i)}">${esc(p.name.charAt(0))}</div><span class="badge green">Active</span></div><h3>${esc(p.name)}</h3><p>${esc(p.scope)}</p><div class="tile-meta"><div>PROJECT BUDGET<strong>${usd(p.budget)}</strong></div><div>HOURLY RATE<strong>${usd(p.hourlyRate)}/hr</strong></div></div><button class="btn btn-secondary" data-action="open-project" data-id="${esc(p.id)}">Analyze a request ${icon('arrow',15)}</button></article>`).join('')}</div>`;}
 function activityPage(){return `${heading('EVERY STEP RECORDED','Activity log','A simple timeline of your projects, analysis, and sandbox payment milestones.')}<div class="white-panel"><div class="panel-head"><h3>Workspace events</h3><span class="badge gray">Latest ${data.activities.length}</span></div>${recentActivity(100)}</div>`;}
-function workspaceAccess(){return `<div class="white-panel" style="margin-bottom:20px"><div class="panel-body"><h3>Private workspace access</h3>${workspaceUnlocked?'<p>Private records and live integrations are unlocked for this session.</p><button class="btn btn-secondary" data-action="lock-workspace">Lock workspace</button>':'<p>The public homepage shows fictional examples only. Unlock to access private records and live integrations.</p><form id="workspace-access"><div class="form-two"><div class="field"><label for="workspace-user">Workspace username</label><input class="input" id="workspace-user" name="username" autocomplete="username" required></div><div class="field"><label for="workspace-password">Workspace password</label><input class="input" id="workspace-password" name="password" type="password" autocomplete="current-password" required></div></div><button class="btn btn-primary">Unlock workspace</button></form>'}</div></div>`;}
-function integrations(){return `${heading('YOUR TOOLKIT','Integrations','Add your own API keys to unlock real AI decisions and PayPal test payments.')}${workspaceAccess()}<div class="integration-grid">
- <div class="card integration-card"><div class="int-header"><div class="integration-logo gemini">✦</div><span class="badge ${config.aiReady?'green':'orange'}">${config.aiReady?'Connected':'Needs API key'}</span></div><h3>Google Gemini AI</h3><p>Analyzes agreements, detects scope changes, estimates extra hours, and generates a client-ready reply.</p><div class="divider"></div><h4>Activate Gemini</h4><ol class="setup-steps"><li>Get an API key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</li><li>Add <span class="code-inline">GEMINI_API_KEY=your_key</span> to <span class="code-inline">.env</span>.</li><li>Restart <span class="code-inline">npm start</span>.</li></ol><div class="small-muted">Model: ${esc(config.aiModel)} · Keys stay on the backend.</div></div>
- <div class="card integration-card"><div class="int-header"><div class="integration-logo paypal">P<span style="color:#4397e4">P</span></div><span class="badge ${config.paypalReady?'green':'orange'}">${config.paypalReady?'Sandbox connected':'Needs credentials'}</span></div><h3>PayPal Sandbox</h3><p>Creates real PayPal sandbox orders, displays PayPal Checkout, and verifies captured payment totals.</p><div class="divider"></div><h4>Activate PayPal</h4><ol class="setup-steps"><li>Create a Sandbox REST app on <a href="https://developer.paypal.com/dashboard/applications/sandbox" target="_blank" rel="noopener">PayPal Developer</a>.</li><li>Put <span class="code-inline">PAYPAL_CLIENT_ID</span> and <span class="code-inline">PAYPAL_CLIENT_SECRET</span> in <span class="code-inline">.env</span>.</li><li>Restart the server and pay using a Sandbox Personal account.</li></ol><div class="small-muted">Environment: Sandbox only · Currency: USD.</div></div></div><div class="small-muted" style="margin-top:16px">Project storage: ${esc(config.storageMode||'Local JSON')} · secrets remain on the backend.</div>
- <div class="notice">${icon('info',19)}<span><strong>Hackathon-ready integration:</strong> This app uses actual third-party APIs when credentials are supplied. The example analysis is intentionally labeled as sample data and never presented as a model response. No live money is accepted.</span></div>`;}
+function ownerAccessPanel(){if(!config.ownerAccessEnabled)return '';return `<div class="white-panel" style="margin-top:20px"><div class="panel-body"><h3>Optional owner access</h3>${ownerAuthenticated?'<p>Owner access is active. You are viewing the private legacy workspace; public visitors cannot see these records.</p><button class="btn btn-secondary" data-action="owner-logout">Return to visitor workspace</button>':'<p>Only the site owner needs this login to access older private workspace records. Normal visitors never need these credentials.</p><form id="owner-login"><div class="form-two"><div class="field"><label for="owner-username">Owner username</label><input class="input" id="owner-username" name="username" autocomplete="username" required/></div><div class="field"><label for="owner-password">Owner password</label><input class="input" id="owner-password" name="password" type="password" autocomplete="current-password" required/></div></div><button class="btn btn-secondary" type="submit">Unlock owner records</button></form>'}</div></div>`;}
+function integrations(){return `${heading('YOUR TOOLKIT','Integrations','Connect your own Gemini API key and PayPal Sandbox merchant app. No ScopePay account or admin password is required.')}
+ <div class="integration-grid">
+  <div class="card integration-card"><div class="int-header"><div class="integration-logo gemini">✦</div><span class="badge ${config.aiReady?'green':'orange'}">${config.aiReady?'Connected':'Not connected'}</span></div><h3>Google Gemini AI</h3><p>Analyze client requests and generate scope-change recommendations using your own Google AI Studio key.</p><div class="divider"></div>
+   <form id="gemini-connect"><div class="field"><label for="gemini-api-key">Gemini API key</label><input class="input" id="gemini-api-key" name="apiKey" type="password" autocomplete="new-password" spellcheck="false" placeholder="Paste your Google AI Studio API key" required maxlength="300"/></div><button class="btn btn-primary" type="submit">${config.aiReady?'Replace API key':'Connect Gemini'}</button></form>
+   ${config.aiReady?'<button class="btn btn-secondary" style="margin-top:10px" data-action="disconnect-gemini">Disconnect Gemini</button>':''}
+   <div class="small-muted" style="margin-top:14px">Get a key from <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>. Model: ${esc(config.aiModel)}.</div>
+  </div>
+  <div class="card integration-card"><div class="int-header"><div class="integration-logo paypal">P<span style="color:#4397e4">P</span></div><span class="badge ${config.paypalReady?'green':'orange'}">${config.paypalReady?'Sandbox connected':'Not connected'}</span></div><h3>PayPal Sandbox</h3><p>Connect your own Sandbox merchant REST app to create and verify test payments for approved change orders.</p><div class="divider"></div>
+   <form id="paypal-connect"><div class="field"><label for="paypal-client-id">Sandbox Client ID</label><input class="input" id="paypal-client-id" name="clientId" autocomplete="off" spellcheck="false" placeholder="Sandbox REST app Client ID" required maxlength="500"/></div><div class="field"><label for="paypal-client-secret">Sandbox Client Secret</label><input class="input" id="paypal-client-secret" name="clientSecret" type="password" autocomplete="new-password" placeholder="Sandbox REST app Client Secret" required maxlength="500"/></div><button class="btn btn-primary" type="submit">${config.paypalReady?'Replace credentials':'Connect PayPal Sandbox'}</button></form>
+   ${config.paypalReady?'<button class="btn btn-secondary" style="margin-top:10px" data-action="disconnect-paypal">Disconnect PayPal</button>':''}
+   <div class="small-muted" style="margin-top:14px">Create a Sandbox REST app in <a href="https://developer.paypal.com/dashboard/applications/sandbox" target="_blank" rel="noopener">PayPal Developer</a>. Use a Sandbox Personal account as the buyer. Sandbox only; no real money moves.</div>
+  </div>
+ </div>
+ <div class="notice">${icon('shield',18)}<span><strong>Your integrations stay private to this browser workspace.</strong> Credentials are sent to the backend over HTTPS, encrypted before storage, and never returned to the browser. Other visitors cannot use your keys. Keep this browser's cookies to return to your workspace.</span></div>
+ <div class="small-muted" style="margin-top:14px">Storage: ${esc(config.storageMode||'Local JSON')} · Your projects and activity are isolated from other visitors. Sample projects work without connecting either integration.</div>${ownerAccessPanel()}`;}
 function modalMarkup(){if(!modal)return '';
  if(modal.type==='project')return `<div class="modal-backdrop" data-action="overlay-close"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div class="modal-head"><h2 id="modal-title">Create a project</h2><button class="close-btn" data-action="close-modal" aria-label="Close">${icon('close')}</button></div><form id="project-form"><div class="modal-inner"><p>Set the original agreement before asking AI to compare future changes.</p>
  <div class="form-two"><div class="field"><label for="name">Project name *</label><input class="input" name="name" id="name" placeholder="e.g. Olive website" required maxlength="100"/></div><div class="field"><label for="client">Client name *</label><input class="input" name="client" id="client" placeholder="e.g. Olive Studio" required maxlength="100"/></div></div>
@@ -216,7 +235,9 @@ document.addEventListener('input',e=>{if(e.target?.id==='client-request')draftRe
 document.addEventListener('change',e=>{if(e.target?.id==='negotiation-analysis'){activeAnalysisId=e.target.value;render();}if(e.target?.id==='project-select'){selectedProjectId=e.target.value;activeAnalysisId=null;draftRequest='';render();}});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&modal){modal=null;render();}if((e.key==='Enter'||e.key===' ')&&e.target.classList.contains('project-card')){e.preventDefault();e.target.click();}});
 document.addEventListener('submit',async e=>{
- if(e.target.id==='workspace-access'){e.preventDefault();const form=e.target;await busy(async()=>{const result=await request('/api/auth/login','POST',{username:form.elements.namedItem('username').value,password:form.elements.namedItem('password').value});workspaceCsrf=result.csrfToken;workspaceUnlocked=true;await reload();notify('Private workspace unlocked.');});return;}
+ if(e.target.id==='owner-login'){e.preventDefault();const form=e.target;await busy(async()=>{const result=await request('/api/auth/login','POST',{username:form.elements.namedItem('username').value,password:form.elements.namedItem('password').value});csrfToken=result.csrfToken;sessionPromise=null;ownerAuthenticated=true;await reload();notify('Private owner records unlocked.');});return;}
+ if(e.target.id==='gemini-connect'){e.preventDefault();const form=e.target,key=form.elements.namedItem('apiKey').value;await busy(async()=>{await request('/api/integrations/gemini','POST',{apiKey:key});form.reset();await reload();notify('Gemini connected to this visitor workspace.');});return;}
+ if(e.target.id==='paypal-connect'){e.preventDefault();const form=e.target,clientId=form.elements.namedItem('clientId').value,clientSecret=form.elements.namedItem('clientSecret').value;await busy(async()=>{await request('/api/integrations/paypal','POST',{clientId,clientSecret});form.reset();await reload();notify('PayPal Sandbox connected to this visitor workspace.');});return;}
  if(e.target.id==='project-form'){
   e.preventDefault();const fd=Object.fromEntries(new FormData(e.target).entries());await busy(async()=>{const p=await request('/api/projects','POST',fd);selectedProjectId=p.id;activeAnalysisId=null;draftRequest='';modal=null;await load();switchPage('analyzer');notify('Project created. Paste a client request to analyze.');});
  }
@@ -232,15 +253,17 @@ document.addEventListener('submit',async e=>{
 });
 document.addEventListener('click',async e=>{
  const target=e.target.closest('[data-action]');if(!target)return;const act=target.dataset.action;
- if(act==='lock-workspace'){await busy(async()=>{await request('/api/auth/logout','POST',{});workspaceCsrf='';workspaceSession=null;workspaceUnlocked=false;await reload();notify('Workspace locked.');});return;}
+ if(act==='owner-logout'){await busy(async()=>{const result=await request('/api/auth/logout','POST',{});csrfToken=result.csrfToken;sessionPromise=null;ownerAuthenticated=false;await reload();notify('Returned to your visitor workspace.');});return;}
+ if(act==='disconnect-gemini'){if(!confirm('Disconnect Gemini for this browser workspace?'))return;await busy(async()=>{await request('/api/integrations/gemini','DELETE');await reload();notify('Gemini disconnected.');});return;}
+ if(act==='disconnect-paypal'){if(!confirm('Disconnect PayPal Sandbox for this browser workspace?'))return;await busy(async()=>{await request('/api/integrations/paypal','DELETE');await reload();notify('PayPal Sandbox disconnected.');});return;}
  if(act==='overlay-close'&&e.target===target){modal=null;render();return;}
  if(act==='nav'){switchPage(target.dataset.page);return;}
  if(act==='new-project'){modal={type:'project'};render();return;}
  if(act==='close-modal'){modal=null;render();return;}
  if(act==='open-project'){selectedProjectId=target.dataset.id;activeAnalysisId=null;draftRequest='';switchPage('analyzer');return;}
- if(act==='fill-sample'){draftRequest=EXAMPLE_REQUESTS[selectedProjectId];if(!draftRequest)return notify('No example request is available for this project.',true);render();document.getElementById('client-request')?.focus();return;}
+ if(act==='fill-sample'){draftRequest=EXAMPLE_REQUESTS[data.projects.find(p=>p.id===selectedProjectId)?.sampleKey];if(!draftRequest)return notify('No example request is available for this project.',true);render();document.getElementById('client-request')?.focus();return;}
  if(act==='preview'){
-  if(selectedProjectId!=='proj_atelier')return notify('Preview uses the Atelier project only.',true);
+  if(data.projects.find(p=>p.id===selectedProjectId)?.sampleKey!=='atelier')return notify('Preview uses the Atelier sample project only.',true);
   draftRequest=SAMPLE_REQUEST;
   await busy(async()=>{const result=await request(`/api/projects/${selectedProjectId}/analyze/sample`,'POST',{requestText:SAMPLE_REQUEST});activeAnalysisId=result.id;await load();notify('Labeled sample analysis loaded (not Gemini output).');});return;
  }

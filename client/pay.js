@@ -7,17 +7,17 @@ function success(o){root.innerHTML=`<div class="checkout-status"><svg width="45"
 function failure(text){root.innerHTML=`<h2>Checkout unavailable</h2><div class="checkout-error">${esc(text)}</div><a class="btn btn-secondary" style="margin-top:20px" href="/">Return to dashboard</a>`;}
 (async()=>{
  try{
-  const [order,config]=await Promise.all([api(`/api/public/change-orders/${encodeURIComponent(id)}`),api('/api/config')]);
+  const order=await api(`/api/public/change-orders/${encodeURIComponent(id)}`);
   if(order.status==='paid')return success(order);
   root.innerHTML=`<span class="eyebrow">CLIENT PAYMENT REQUEST</span><h1>Let's make it official.</h1><p>Review the approved project change below and pay using a <strong>PayPal Sandbox buyer account</strong>.</p>
    <div class="checkout-item"><strong>${esc(order.projectName)}</strong>${esc(order.description)}<br/><small style="color:#91a0b6">Requested by ${esc(order.merchantName)} · for ${esc(order.clientName)}</small></div>
    <div class="checkout-amount"><div><span class="eyebrow" style="margin-bottom:3px">TOTAL DUE</span><small style="color:#a0aab9">USD · one-time change order</small></div><b>${usd(order.amount)}</b></div>
-   ${!config.paypalReady?`<div class="integration-info"><b>PayPal Sandbox is not configured</b>The freelancer must add PayPal Sandbox credentials on the server before you can check out.</div>`:
+   ${!order.paypalClientId?`<div class="integration-info"><b>PayPal Sandbox is not connected</b>The freelancer needs to connect their Sandbox merchant app before checkout is available.</div>`:
    `<div class="checkout-brand"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/></svg> Secure PayPal Sandbox Checkout</div><div id="pp-buttons" style="margin-top:18px;min-height:30px"></div>`}
    <p class="checkout-foot">This is a test environment. Sandbox payments never move real money.<br/>The freelancer has already reviewed and approved the amount.</p>`;
-  if(!config.paypalReady)return;
+  if(!order.paypalClientId)return;
   const script=document.createElement('script');
-  script.src=`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(config.paypalClientId)}&currency=USD&components=buttons&intent=capture`;
+  script.src=`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(order.paypalClientId)}&currency=USD&components=buttons&intent=capture`;
   script.onload=()=>{
    window.paypal.Buttons({
     style:{layout:'vertical',shape:'rect',label:'pay',height:46},

@@ -7,3 +7,5 @@ server/data/*.json
 .DS_Store
 *.log
 coverage/
+
+server/data/*.tenants.json

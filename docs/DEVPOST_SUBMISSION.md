@@ -20,15 +20,15 @@ ScopePay starts with the project's agreed scope and its hourly rate. When a clie
 
 The AI then recommends three negotiation choices: **full implementation**, a **lean first version**, or a **scope exchange** where both parties explicitly approve removing or replacing an agreed deliverable. The freelancer curates the proposals and sets their final prices. The client receives a private invitation link to choose an option or propose a counteroffer, which the freelancer can accept or decline. Only mutually accepted paid options create a PayPal change order; accepted $0 scope exchanges do not need payment. PayPal's official buttons handle buyer approval; the backend creates and captures the sandbox order through Orders v2. The app only marks the change order Paid when PayPal returns a completed capture for the expected USD amount.
 
-The app also includes a freelancer dashboard, project library, evidence-backed scope review, client negotiation portal, activity history, client checkout view, and integration-readiness panel. A visibly labeled static preview demonstrates the UI if no Gemini key is configured.
+The app also includes a freelancer dashboard, project library, evidence-backed scope review, client negotiation portal, activity history, client checkout view, and integration panel. Visitors open the public site without a ScopePay account and connect their own Gemini API key and PayPal Sandbox merchant credentials. Visitor projects, analyses, negotiations, activity, and payment records are stored in a shared Supabase PostgreSQL database with server-enforced workspace ownership. A visibly labeled static preview demonstrates the UI if no Gemini key is configured.
 
 ## How we built it
 
 - **Google Gemini REST API**: structured scope analysis, quote-backed evidence, itemized effort estimate, three negotiation alternatives, and a client response draft. The server verifies evidence is actually excerpted from the original agreement and computes prices independently.
 - **PayPal Sandbox Orders v2 + JavaScript SDK**: server-side OAuth2, order creation, client authorization in PayPal Checkout, capture and server-side verification.
-- **Node.js**: built-in HTTP server and local persistent JSON store, eliminating npm dependencies for quick judge setup.
+- **Node.js**: built-in HTTP server, anonymous session handling, visitor-scoped JSON development storage, and Supabase PostgreSQL persistence for the hosted application.
 - **HTML, CSS and JavaScript**: responsive freelancer negotiation studio, shareable client offer portal, and checkout page.
-- **Node test runner**: 13 tests covering pricing math, quote checks, negotiation decisions, counteroffers, zero-fee trades, payment verification, persistence, and local API flows.
+- **Node test runner**: 22 tests covering visitor isolation, optional owner access, client capability links, credential encryption, pricing math, quote checks, negotiation decisions, counteroffers, payment verification, persistence, and UI rendering.
 
 ## Challenges we designed around
 
@@ -38,11 +38,11 @@ A second challenge is making the PayPal integration meaningful, not decorative. 
 
 ## What we're proud of
 
-The flow is easy to understand for non-technical freelancers and is backed by actual payment API integration code. Sandbox money and real money are clearly separated, and sample AI output is not misrepresented as a live response. A full local setup does not require a database installation or npm package downloads.
+The flow is easy to understand for non-technical freelancers and is backed by actual payment API integration code. Sandbox money and real money are clearly separated, and sample AI output is not misrepresented as a live response. Local development can run without a database service, while the hosted multi-visitor deployment uses Supabase PostgreSQL. npm dependencies are installed with `npm install`.
 
 ## What's next
 
-Add client/freelancer identity verification and authentication, database-backed tenant isolation, legally robust electronic signatures, webhook-based reconciliation, a more rigorous historical estimation model, and support for other currencies. Later, ScopePay could become a full independent-work contract assistant with versioned agreements and invoice exports.
+Add registered client/freelancer accounts, MFA and account recovery, independent security review, legally robust electronic signatures, webhook-based reconciliation, a more rigorous historical estimation model, and support for other currencies. Later, ScopePay could become a full independent-work contract assistant with versioned agreements and invoice exports.
 
 ## Suggested categories / award alignment
 
@@ -58,4 +58,4 @@ Most Impactful, Best Use of PayPal + AI, and potentially Best Use of Agentic Com
 
 ## Accuracy checklist
 
-The developer has separately exercised Gemini and PayPal Sandbox with this project; **this packaged build was only automatically tested using local APIs and mocks**. Recheck live third-party calls with your own keys before claiming the final demo is fully verified. The sample-mode preview is static; it is not a trained model inference. This repository provides a working local prototype plus real integration code ready for credentials.
+This packaged build was automatically tested with local API tests and mocked third-party services. **Live Gemini, Supabase, and PayPal Sandbox calls still need to be tested with the deployer’s own credentials.** Recheck live third-party calls with your own keys before claiming the final demo is fully verified. The sample-mode preview is static; it is not a trained model inference. This repository provides a working local prototype plus real integration code ready for credentials.

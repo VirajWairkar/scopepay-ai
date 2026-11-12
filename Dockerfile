@@ -1,6 +1,6 @@
 FROM node:22-alpine
 WORKDIR /app
-COPY package.json README.md LICENSE ./
+COPY package.json package-lock.json README.md LICENSE ./
 RUN npm install --omit=dev
 COPY client ./client
 COPY server ./server
